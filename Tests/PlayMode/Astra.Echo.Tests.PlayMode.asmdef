@@ -1,0 +1,19 @@
+{
+    "name": "Astra.Echo.Tests.PlayMode",
+    "rootNamespace": "Astra.Echo.Tests",
+    "references": [
+        "Astra.Echo.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

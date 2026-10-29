@@ -1,0 +1,22 @@
+{
+    "name": "Astra.Echo.Tests.EditMode",
+    "rootNamespace": "Astra.Echo.Tests",
+    "references": [
+        "Astra.Echo.Runtime",
+        "Astra.Echo.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}
