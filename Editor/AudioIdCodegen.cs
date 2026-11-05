@@ -68,7 +68,7 @@ namespace Astra.Echo.Editor
             Debug.Log($"[Echo] Regenerated AudioIds registry ({entries.Count} entries) → {targetPath}");
         }
 
-        [MenuItem("Tools/Astra/Echo/Regenerate Audio ID Registry")]
+        [MenuItem("Tools/Astra/Echo/Regenerate Audio ID Registry", priority = 220)]
         public static void RegenerateMenu()
         {
             List<AudioDefinition> defs = AudioDatabaseRegistry.FindAllDefinitions();
