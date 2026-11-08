@@ -22,7 +22,7 @@ namespace Astra.Echo.Tests
 
         public static AudioPlaybackContext CreateContext(AudioDefinition definition = null, float volume = 1f, float basePitch = 1f)
         {
-            return new AudioPlaybackContext(definition, AudioType.Sfx, volume, basePitch);
+            return new AudioPlaybackContext(definition, definition != null ? definition.Bus : null, volume, basePitch);
         }
 
         /// <summary>Sets the private serialized fields of a plain [Serializable] option or modulator.</summary>
@@ -33,14 +33,22 @@ namespace Astra.Echo.Tests
             return instance;
         }
 
-        public static AudioDefinition CreateDefinition(string name, AudioClip clip, string guid, AudioType type = AudioType.Sfx)
+        public static AudioDefinition CreateDefinition(string name, AudioClip clip, string guid, AudioBusAsset bus = null)
         {
             AudioDefinition definition = ScriptableObject.CreateInstance<AudioDefinition>();
             definition.name = name;
             definition.EditorSetClip(clip);
-            definition.EditorSetType(type);
+            definition.EditorSetBus(bus);
             definition.EditorSetId(guid == null ? AudioId.None : new AudioId(guid));
             return definition;
+        }
+
+        public static AudioBusAsset CreateBus(string name, AudioBusPlayback playback, float defaultVolume = 1f)
+        {
+            AudioBusAsset bus = ScriptableObject.CreateInstance<AudioBusAsset>();
+            bus.name = name + "Bus";
+            bus.Configure(name, playback, defaultVolume);
+            return bus;
         }
 
         public static AudioDatabase CreateDatabase(params AudioDefinition[] definitions)

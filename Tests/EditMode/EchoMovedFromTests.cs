@@ -21,12 +21,5 @@ namespace Astra.Echo.Tests
             Assert.That(type.Namespace, Is.EqualTo("Astra.Echo"));
             Assert.That(type.Assembly.GetName().Name, Is.EqualTo("Astra.Echo.Runtime"));
         }
-
-        [Test]
-        public void EnumsKeepTheirFrozenIntegers()
-        {
-            Assert.That((int)AudioType.Sfx, Is.EqualTo(0));
-            Assert.That((int)AudioCategory.Master, Is.EqualTo(0));
-        }
     }
 }

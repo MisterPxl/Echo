@@ -9,6 +9,9 @@ namespace Astra.Echo.Tests
     {
         private AudioClip _clip;
         private AudioClip _other;
+        private AudioBusAsset _music;
+        private AudioBusAsset _ambient;
+        private AudioBusAsset _sfx;
         private AudioService _service;
 
         [SetUp]
@@ -16,6 +19,8 @@ namespace Astra.Echo.Tests
         {
             _clip = AudioClip.Create("EchoSilentClip", 44100 * 2, 1, 44100, false);
             _other = AudioClip.Create("EchoSilentClip2", 44100 * 2, 1, 44100, false);
+            _music = EchoTestUtil.CreateBus("Music", new SingleTrackPlayback(), 0.8f);
+            _ambient = EchoTestUtil.CreateBus("Ambient", new SingleTrackPlayback(), 0.7f);
         }
 
         [TearDown]
@@ -25,6 +30,9 @@ namespace Astra.Echo.Tests
             _service = null;
             if (_clip != null) Object.Destroy(_clip);
             if (_other != null) Object.Destroy(_other);
+            if (_music != null) Object.Destroy(_music);
+            if (_ambient != null) Object.Destroy(_ambient);
+            if (_sfx != null) Object.Destroy(_sfx);
         }
 
         private static void RequireAudioDevice(AudioSource source)
@@ -34,60 +42,81 @@ namespace Astra.Echo.Tests
 
         private AudioService CreateService(int poolInitial, int poolMax, IEchoLogger logger = null, bool verbose = false)
         {
+            _sfx = EchoTestUtil.CreateBus("Sfx", new OneShotPoolPlayback(poolInitial, poolMax));
             _service = new AudioService(logger, verbose);
-            _service.Initialize(new AudioServiceSettings
-            {
-                RootName = "EchoTestRoot",
-                SfxPoolInitialSize = poolInitial,
-                SfxPoolMaxSize = poolMax,
-            });
+            _service.Initialize(Settings("EchoTestRoot"));
             return _service;
         }
 
+        private AudioServiceSettings Settings(string rootName)
+        {
+            AudioServiceSettings settings = new AudioServiceSettings { RootName = rootName, RawClipBus = _sfx };
+            settings.Buses.Add(_music);
+            settings.Buses.Add(_ambient);
+            return settings;
+        }
+
+        private static AudioSource PoolSource(AudioBusAsset bus)
+        {
+            return GameObject.Find(bus.DisplayName + " Pool").GetComponent<AudioSource>();
+        }
+
         [UnityTest]
-        public IEnumerator Initialize_BuildsTheRootWithTheConfiguredPool()
+        public IEnumerator Initialize_BuildsTheRootWithEveryConfiguredBus()
         {
             CreateService(3, 5);
             yield return null;
 
             GameObject root = GameObject.Find("EchoTestRoot");
             Assert.That(root, Is.Not.Null);
-            Assert.That(root.GetComponentsInChildren<AudioSource>().Length, Is.EqualTo(3 + 2), "3 pooled sources + music + ambient");
+            Assert.That(root.GetComponentsInChildren<AudioSource>().Length, Is.EqualTo(3 + 2), "3 pooled sources + music + ambient tracks");
+            Assert.That(_service.Buses, Is.EqualTo(new[] { _music, _ambient, _sfx }));
         }
 
         [UnityTest]
         public IEnumerator FreshPooledSources_AreNotPlaying()
         {
             CreateService(2, 2);
-            AudioRoot root = Object.FindFirstObjectByType<AudioRoot>();
             yield return null;
 
-            AudioSource[] sources = root.SfxPool.GetComponents<AudioSource>();
+            AudioSource[] sources = GameObject.Find("Sfx Pool").GetComponents<AudioSource>();
             Assert.That(sources.Length, Is.EqualTo(2));
             for (int i = 0; i < sources.Length; i++)
                 Assert.That(sources[i].isPlaying, Is.False, "play-on-awake must not leak into a new pooled source");
-            Assert.That(_service.IsMusicPlaying, Is.False);
-            Assert.That(_service.IsAmbientPlaying, Is.False);
+            Assert.That(_service.IsPlaying(_music), Is.False);
+            Assert.That(_service.IsPlaying(_ambient), Is.False);
         }
 
         [UnityTest]
-        public IEnumerator PlaySfx_UsesThePoolAndAppliesVolumeBuses()
+        public IEnumerator PlaySfx_UsesTheRawClipBusAndAppliesMaster()
         {
             CreateService(1, 1);
             _service.MasterVolume = 0.5f;
-            _service.SfxVolume = 0.4f;
+            _service.SetVolume(_sfx, 0.4f);
 
             AudioPlaybackResult result = _service.PlaySfx(_clip, 0.3f);
             yield return null;
 
             Assert.That(result.Success, Is.True, result.Message);
-            AudioSource source = Object.FindFirstObjectByType<AudioRoot>().SfxPool.GetComponent<AudioSource>();
+            AudioSource source = PoolSource(_sfx);
             Assert.That(source.clip, Is.SameAs(_clip));
             Assert.That(source.volume, Is.EqualTo(0.06f).Within(0.00001f));
             Assert.That(source.loop, Is.False);
 
-            _service.StopAllSfx();
+            _service.Stop(_sfx);
             Assert.That(source.isPlaying, Is.False);
+        }
+
+        [UnityTest]
+        public IEnumerator PlaySfx_WithoutRawClipBusFails()
+        {
+            _service = new AudioService();
+            _service.Initialize(new AudioServiceSettings { RootName = "EchoNoRawRoot" });
+            yield return null;
+
+            AudioPlaybackResult result = _service.PlaySfx(_clip);
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Message, Does.Contain("RawClipBus"));
         }
 
         [UnityTest]
@@ -96,7 +125,7 @@ namespace Astra.Echo.Tests
             EchoTestUtil.RecordingLogger logger = new EchoTestUtil.RecordingLogger();
             CreateService(1, 1, logger, false);
 
-            AudioDefinition definition = EchoTestUtil.CreateDefinition("Sat", _clip, "feed");
+            AudioDefinition definition = EchoTestUtil.CreateDefinition("Sat", _clip, "feed", _sfx);
             AudioPlaybackResult first = _service.Play(AudioPlaybackRequest.ForDefinition(definition));
             yield return null;
             AudioPlaybackResult second = _service.Play(AudioPlaybackRequest.ForDefinition(definition));
@@ -104,10 +133,29 @@ namespace Astra.Echo.Tests
             try
             {
                 Assert.That(first.Success, Is.True, first.Message);
-                RequireAudioDevice(Object.FindFirstObjectByType<AudioRoot>().SfxPool.GetComponent<AudioSource>());
+                RequireAudioDevice(PoolSource(_sfx));
                 Assert.That(second.Success, Is.False);
-                Assert.That(second.Message, Is.EqualTo("SFX pool exhausted."));
-                Assert.That(logger.Warnings, Has.Some.Contains("saturated"));
+                Assert.That(second.Message, Is.EqualTo("Bus 'Sfx': pool exhausted (1 sources)."));
+                Assert.That(logger.Warnings, Has.Some.Contains("pool exhausted"));
+            }
+            finally
+            {
+                Object.Destroy(definition);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Definition_WithoutBusFails()
+        {
+            CreateService(1, 1);
+            AudioDefinition definition = EchoTestUtil.CreateDefinition("Orphan", _clip, "0ff");
+            yield return null;
+
+            try
+            {
+                AudioPlaybackResult result = _service.Play(AudioPlaybackRequest.ForDefinition(definition));
+                Assert.That(result.Success, Is.False);
+                Assert.That(result.Message, Is.EqualTo("Definition 'Orphan' has no bus."));
             }
             finally
             {
@@ -119,24 +167,24 @@ namespace Astra.Echo.Tests
         public IEnumerator Music_ReplacesTheCurrentTrackAndStops()
         {
             CreateService(1, 1);
-            AudioDefinition first = EchoTestUtil.CreateDefinition("MusicA", _clip, "m1", AudioType.Music);
-            AudioDefinition second = EchoTestUtil.CreateDefinition("MusicB", _other, "m2", AudioType.Music);
-            AudioPlayer player = Object.FindFirstObjectByType<AudioRoot>().MusicPlayer;
+            AudioDefinition first = EchoTestUtil.CreateDefinition("MusicA", _clip, "m1", _music);
+            AudioDefinition second = EchoTestUtil.CreateDefinition("MusicB", _other, "m2", _music);
 
             try
             {
-                _service.Play(AudioPlaybackRequest.ForDefinition(first));
+                AudioPlaybackResult result = _service.Play(AudioPlaybackRequest.ForDefinition(first));
+                AudioPlayer player = (AudioPlayer)result.Handle;
                 yield return null;
-                if (!_service.IsMusicPlaying) Assert.Ignore("No audio output device available.");
-                Assert.That(_service.IsMusicPlaying, Is.True);
+                if (!_service.IsPlaying(_music)) Assert.Ignore("No audio output device available.");
                 Assert.That(player.CurrentClip, Is.SameAs(_clip));
 
-                _service.Play(AudioPlaybackRequest.ForDefinition(second));
+                AudioPlaybackResult replaced = _service.Play(AudioPlaybackRequest.ForDefinition(second));
                 yield return null;
+                Assert.That(replaced.Handle, Is.SameAs(player));
                 Assert.That(player.CurrentClip, Is.SameAs(_other));
 
-                _service.StopMusic();
-                Assert.That(_service.IsMusicPlaying, Is.False);
+                _service.Stop(_music);
+                Assert.That(_service.IsPlaying(_music), Is.False);
             }
             finally
             {
@@ -146,21 +194,46 @@ namespace Astra.Echo.Tests
         }
 
         [UnityTest]
+        public IEnumerator Track_FollowsMasterAndBusVolume()
+        {
+            CreateService(1, 1);
+            AudioDefinition definition = EchoTestUtil.CreateDefinition("Theme", _clip, "t1", _music);
+
+            try
+            {
+                AudioPlaybackResult result = _service.Play(AudioPlaybackRequest.ForDefinition(definition));
+                AudioSource source = ((AudioPlayer)result.Handle).GetComponent<AudioSource>();
+                yield return null;
+                if (!_service.IsPlaying(_music)) Assert.Ignore("No audio output device available.");
+                Assert.That(source.volume, Is.EqualTo(0.8f).Within(0.0001f));
+
+                _service.MasterVolume = 0.5f;
+                Assert.That(source.volume, Is.EqualTo(0.4f).Within(0.0001f));
+
+                _service.SetVolume(_music, 0.2f);
+                Assert.That(source.volume, Is.EqualTo(0.1f).Within(0.0001f));
+            }
+            finally
+            {
+                Object.Destroy(definition);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator Ambient_PlaysOnItsOwnChannelAndStops()
         {
             CreateService(1, 1);
-            AudioDefinition ambient = EchoTestUtil.CreateDefinition("Amb", _clip, "a1", AudioType.Ambient);
+            AudioDefinition ambient = EchoTestUtil.CreateDefinition("Amb", _clip, "a1", _ambient);
 
             try
             {
                 _service.Play(AudioPlaybackRequest.ForDefinition(ambient));
                 yield return null;
-                if (!_service.IsAmbientPlaying) Assert.Ignore("No audio output device available.");
-                Assert.That(_service.IsAmbientPlaying, Is.True);
-                Assert.That(_service.IsMusicPlaying, Is.False);
+                if (!_service.IsPlaying(_ambient)) Assert.Ignore("No audio output device available.");
+                Assert.That(_service.IsPlaying(_music), Is.False);
 
-                _service.StopAmbient();
-                Assert.That(_service.IsAmbientPlaying, Is.False);
+                _service.Stop(_ambient);
+                Assert.That(_service.IsPlaying(_ambient), Is.False);
             }
             finally
             {
@@ -173,8 +246,8 @@ namespace Astra.Echo.Tests
         {
             CreateService(1, 1);
             FadeInOption fade = EchoTestUtil.FromJson<FadeInOption>("{\"_durationSeconds\":0.3}");
-            AudioDefinition definition = EchoTestUtil.CreateDefinition("Fade", _clip, "f1");
-            AudioSource source = Object.FindFirstObjectByType<AudioRoot>().SfxPool.GetComponent<AudioSource>();
+            AudioDefinition definition = EchoTestUtil.CreateDefinition("Fade", _clip, "f1", _sfx);
+            AudioSource source = PoolSource(_sfx);
 
             try
             {
@@ -198,7 +271,7 @@ namespace Astra.Echo.Tests
         public IEnumerator DelayedPlay_DoesNotThrow()
         {
             CreateService(1, 1);
-            AudioDefinition definition = EchoTestUtil.CreateDefinition("Delay", _clip, "d1");
+            AudioDefinition definition = EchoTestUtil.CreateDefinition("Delay", _clip, "d1", _sfx);
             AudioPlaybackRequest request = AudioPlaybackRequest.ForDefinition(definition);
             request.Options = new System.Collections.Generic.List<ISoundOption> { new DelayedPlayOption() };
 
@@ -219,18 +292,18 @@ namespace Astra.Echo.Tests
         {
             EchoTestUtil.RecordingLogger quiet = new EchoTestUtil.RecordingLogger();
             AudioService quietService = new AudioService(quiet, false);
-            quietService.Initialize(new AudioServiceSettings { RootName = "EchoQuietRoot", SfxPoolInitialSize = 1, SfxPoolMaxSize = 1 });
-            quietService.StopMusic();
+            quietService.Initialize(Settings("EchoQuietRoot"));
+            quietService.Stop(_music);
 
             EchoTestUtil.RecordingLogger loud = new EchoTestUtil.RecordingLogger();
             CreateService(1, 1, loud, true);
-            _service.StopMusic();
+            _service.Stop(_music);
             yield return null;
 
             try
             {
                 Assert.That(quiet.Infos, Is.Empty);
-                Assert.That(loud.Infos, Has.Some.Contains("Music stopped"));
+                Assert.That(loud.Infos, Has.Some.Contains("Bus 'Music' stopped"));
             }
             finally
             {
@@ -250,6 +323,7 @@ namespace Astra.Echo.Tests
 
             Assert.That(GameObject.Find("EchoTestRoot"), Is.Null);
             Assert.That(_service.Play(new AudioId("x")).Success, Is.False);
+            Assert.That(_service.IsPlaying(_music), Is.False);
         }
 
         [UnityTest]
@@ -257,11 +331,12 @@ namespace Astra.Echo.Tests
         {
             CreateService(1, 1);
             yield return null;
-            _service.Initialize(new AudioServiceSettings { RootName = "EchoSecondRoot", SfxPoolInitialSize = 1, SfxPoolMaxSize = 1 });
+            _service.Initialize(Settings("EchoSecondRoot"));
             yield return null;
 
             Assert.That(GameObject.Find("EchoTestRoot"), Is.Null);
             Assert.That(GameObject.Find("EchoSecondRoot"), Is.Not.Null);
+            Assert.That(GameObject.Find("EchoSecondRoot").GetComponentsInChildren<AudioSource>().Length, Is.EqualTo(1 + 2), "1 pooled source + music + ambient tracks");
         }
 
         [UnityTest]
@@ -271,7 +346,7 @@ namespace Astra.Echo.Tests
             try
             {
                 _service = new AudioService();
-                _service.Initialize(new AudioServiceSettings { RootName = "EchoChildRoot", SfxPoolInitialSize = 1, SfxPoolMaxSize = 1 }, parent.transform);
+                _service.Initialize(Settings("EchoChildRoot"), parent.transform);
                 yield return null;
 
                 Assert.That(parent.transform.Find("EchoChildRoot"), Is.Not.Null);
@@ -285,10 +360,11 @@ namespace Astra.Echo.Tests
         [UnityTest]
         public IEnumerator MinimalProjectSmoke_NoFrameworkRequired()
         {
-            AudioDefinition definition = EchoTestUtil.CreateDefinition("Smoke", _clip, "5m0k3");
+            _sfx = EchoTestUtil.CreateBus("Sfx", new OneShotPoolPlayback(2, 4));
+            AudioDefinition definition = EchoTestUtil.CreateDefinition("Smoke", _clip, "5m0k3", _sfx);
             AudioDatabase database = EchoTestUtil.CreateDatabase(definition);
             _service = new AudioService();
-            _service.Initialize(new AudioServiceSettings { RootName = "EchoSmokeRoot", Database = database, SfxPoolInitialSize = 2, SfxPoolMaxSize = 4 });
+            _service.Initialize(new AudioServiceSettings { RootName = "EchoSmokeRoot", Database = database });
 
             try
             {
@@ -299,6 +375,7 @@ namespace Astra.Echo.Tests
                 Assert.That(byId.Success, Is.True, byId.Message);
                 Assert.That(fluent.Success, Is.True, fluent.Message);
                 Assert.That(_service.Play(new AudioId("missing")).Success, Is.False);
+                Assert.That(_service.Buses, Is.EqualTo(new[] { _sfx }), "a bus met through a definition is created on demand");
             }
             finally
             {

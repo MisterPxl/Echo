@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -6,52 +7,70 @@ namespace Astra.Echo.Tests
     public sealed class AudioServiceContractTests
     {
         [Test]
-        public void VolumeBuses_EffectiveVolumeIsMasterTimesCategory()
+        public void Volumes_UnknownBusReportsItsDefaultWithoutBeingRegistered()
         {
-            AudioVolumeSettings volumes = new AudioVolumeSettings
+            AudioService service = new AudioService();
+            AudioBusAsset music = EchoTestUtil.CreateBus("Music", new SingleTrackPlayback(), 0.8f);
+            try
             {
-                Master = 0.5f,
-                Music = 0.8f,
-                Sfx = 0.4f,
-                Ambient = 0.2f,
-            };
-
-            Assert.That(volumes.EffectiveMusic, Is.EqualTo(0.4f).Within(0.0001f));
-            Assert.That(volumes.EffectiveSfx, Is.EqualTo(0.2f).Within(0.0001f));
-            Assert.That(volumes.EffectiveAmbient, Is.EqualTo(0.1f).Within(0.0001f));
-            Assert.That(volumes.EffectiveFor(AudioCategory.Master), Is.EqualTo(0.5f).Within(0.0001f));
-            Assert.That(volumes.EffectiveFor(AudioCategory.Sfx), Is.EqualTo(0.2f).Within(0.0001f));
+                Assert.That(service.GetVolume(music), Is.EqualTo(0.8f).Within(0.0001f));
+                Assert.That(service.Buses, Is.Empty);
+            }
+            finally
+            {
+                EchoTestUtil.Destroy(music);
+            }
         }
 
         [Test]
-        public void VolumeBuses_ValuesAreClamped()
-        {
-            AudioVolumeSettings volumes = new AudioVolumeSettings { Master = 4f, Music = -1f };
-            Assert.That(volumes.Master, Is.EqualTo(1f));
-            Assert.That(volumes.Music, Is.EqualTo(0f));
-        }
-
-        [Test]
-        public void Service_SetVolumeAndGetVolumeRoundTripPerCategory()
+        public void Volumes_AreClampedAndKeptPerBus()
         {
             AudioService service = new AudioService();
-            service.SetVolume(AudioCategory.Master, 0.5f);
-            service.SetVolume(AudioCategory.Sfx, 0.5f);
+            AudioBusAsset music = EchoTestUtil.CreateBus("Music", new SingleTrackPlayback());
+            AudioBusAsset sfx = EchoTestUtil.CreateBus("Sfx", new OneShotPoolPlayback());
+            try
+            {
+                service.MasterVolume = 4f;
+                service.SetVolume(music, -1f);
+                service.SetVolume(sfx, 0.4f);
 
-            Assert.That(service.MasterVolume, Is.EqualTo(0.5f).Within(0.0001f));
-            Assert.That(service.GetVolume(AudioCategory.Sfx), Is.EqualTo(0.25f).Within(0.0001f));
+                Assert.That(service.MasterVolume, Is.EqualTo(1f));
+                Assert.That(service.GetVolume(music), Is.EqualTo(0f));
+                Assert.That(service.GetVolume(sfx), Is.EqualTo(0.4f).Within(0.0001f));
+                Assert.That(service.Buses, Is.EqualTo(new[] { music, sfx }));
+            }
+            finally
+            {
+                EchoTestUtil.Destroy(music, sfx);
+            }
         }
 
         [Test]
-        public void Service_ApplyDefaultsFeedsTheBuses()
+        public void Volumes_MasterDoesNotRewriteTheBusLevel()
         {
             AudioService service = new AudioService();
-            service.ApplyDefaults(new AudioVolumesDefaults(0.9f, 0.8f, 0.7f, 0.6f));
+            AudioBusAsset sfx = EchoTestUtil.CreateBus("Sfx", new OneShotPoolPlayback());
+            try
+            {
+                service.SetVolume(sfx, 0.5f);
+                service.MasterVolume = 0.5f;
 
-            Assert.That(service.MasterVolume, Is.EqualTo(0.9f).Within(0.0001f));
-            Assert.That(service.MusicVolume, Is.EqualTo(0.8f).Within(0.0001f));
-            Assert.That(service.SfxVolume, Is.EqualTo(0.7f).Within(0.0001f));
-            Assert.That(service.AmbientVolume, Is.EqualTo(0.6f).Within(0.0001f));
+                Assert.That(service.GetVolume(sfx), Is.EqualTo(0.5f).Within(0.0001f));
+            }
+            finally
+            {
+                EchoTestUtil.Destroy(sfx);
+            }
+        }
+
+        [Test]
+        public void Volumes_NullBusIsRejected()
+        {
+            AudioService service = new AudioService();
+            Assert.Throws<System.ArgumentNullException>(() => service.SetVolume(null, 1f));
+            Assert.Throws<System.ArgumentNullException>(() => service.GetVolume(null));
+            Assert.That(service.IsPlaying(null), Is.False);
+            Assert.That(service.Stop(null).Success, Is.False);
         }
 
         [Test]
@@ -169,43 +188,42 @@ namespace Astra.Echo.Tests
         }
 
         [Test]
-        public void Settings_DefaultsMatchTheHistoricalConfiguration()
+        public void Settings_DefaultsDeclareNoBus()
         {
             AudioServiceSettings settings = new AudioServiceSettings();
 
             Assert.That(settings.RootName, Is.EqualTo("AudioRoot"));
             Assert.That(settings.Database, Is.Null);
-            Assert.That(settings.SfxPoolInitialSize, Is.EqualTo(8));
-            Assert.That(settings.SfxPoolMaxSize, Is.EqualTo(32));
-            Assert.That(settings.Volumes.Master, Is.EqualTo(1f));
-            Assert.That(settings.Volumes.Music, Is.EqualTo(0.8f));
-            Assert.That(settings.Volumes.Sfx, Is.EqualTo(1f));
-            Assert.That(settings.Volumes.Ambient, Is.EqualTo(0.7f));
-            Assert.That(settings.MusicMixerGroup, Is.Null);
+            Assert.That(settings.MasterVolume, Is.EqualTo(1f));
+            Assert.That(settings.Buses, Is.Empty);
+            Assert.That(settings.RawClipBus, Is.Null);
         }
 
         [Test]
         public void Logger_NullIsAcceptedEverywhere()
         {
             AudioService service = new AudioService(null, true);
-            Assert.DoesNotThrow(() => service.StopAllSfx());
-            Assert.That(service.StopMusic().Success, Is.False);
-            Assert.That(service.StopAmbient().Success, Is.False);
+            AudioBusAsset music = EchoTestUtil.CreateBus("Music", new SingleTrackPlayback());
+            try
+            {
+                Assert.That(service.Stop(music).Success, Is.False);
+            }
+            finally
+            {
+                EchoTestUtil.Destroy(music);
+            }
         }
 
         private sealed class RecordingService : IAudioService
         {
             public AudioPlaybackRequest Last;
 
-            public bool IsMusicPlaying => false;
-            public bool IsAmbientPlaying => false;
             public float MasterVolume { get; set; }
-            public float MusicVolume { get; set; }
-            public float SfxVolume { get; set; }
-            public float AmbientVolume { get; set; }
+            public IReadOnlyList<AudioBusAsset> Buses => System.Array.Empty<AudioBusAsset>();
 
-            public void SetVolume(AudioCategory category, float volume) { }
-            public float GetVolume(AudioCategory category) => 0f;
+            public float GetVolume(AudioBusAsset bus) => 0f;
+            public void SetVolume(AudioBusAsset bus, float volume) { }
+            public bool IsPlaying(AudioBusAsset bus) => false;
             public AudioRequest CreateRequest(AudioId id) => new AudioRequest(this, id);
             public AudioPlaybackResult Play(AudioId id) => Play(AudioPlaybackRequest.ForId(id));
 
@@ -215,9 +233,7 @@ namespace Astra.Echo.Tests
                 return AudioPlaybackResult.Succeed("recorded");
             }
 
-            public AudioPlaybackResult StopMusic() => AudioPlaybackResult.Succeed("stopped");
-            public AudioPlaybackResult StopAmbient() => AudioPlaybackResult.Succeed("stopped");
-            public void StopAllSfx() { }
+            public AudioPlaybackResult Stop(AudioBusAsset bus) => AudioPlaybackResult.Succeed("stopped");
         }
     }
 }

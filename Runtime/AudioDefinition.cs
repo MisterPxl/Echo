@@ -5,7 +5,7 @@ using UnityEngine.Audio;
 namespace Astra.Echo
 {
     /// <summary>
-    /// ScriptableObject describing a single playable sound: clip, type, default playback parameters,
+    /// ScriptableObject describing a single playable sound: clip, bus, default playback parameters,
     /// optional 3D spatial settings, and authorable modulators.
     ///
     /// <para>The <see cref="Id"/> is auto-assigned by the editor pipeline (see AudioPostprocessor)
@@ -23,7 +23,8 @@ namespace Astra.Echo
         [Tooltip("Optional human-readable label. Defaults to the asset name when empty.")]
         [SerializeField] private string _label;
 
-        [SerializeField] private AudioType _type = AudioType.Sfx;
+        [Tooltip("Volume bus, mixer routing and playback behaviour (track or one-shot) of this sound.")]
+        [SerializeField] private AudioBusAsset _bus;
 
         [Header("Clip")]
         [SerializeField] private AudioClip _clip;
@@ -34,7 +35,7 @@ namespace Astra.Echo
         [SerializeField] private bool _baseLoop;
 
         [Header("Routing (optional)")]
-        [Tooltip("Optional override mixer group. When null, the AudioService routes via type.")]
+        [Tooltip("Optional override mixer group. When null, the source uses the bus mixer group.")]
         [SerializeField] private AudioMixerGroup _mixerGroupOverride;
 
         [Header("Spatial (optional, for 3D content)")]
@@ -55,7 +56,7 @@ namespace Astra.Echo
 
         public AudioId Id => _id;
         public string Label => string.IsNullOrEmpty(_label) ? name : _label;
-        public AudioType Type => _type;
+        public AudioBusAsset Bus => _bus;
         public AudioClip Clip => _clip;
 
         public float BaseVolume => _baseVolume;
@@ -83,11 +84,11 @@ namespace Astra.Echo
         }
 
         /// <summary>
-        /// Editor-only: sets the type. Used by AudioPostprocessor when classifying clips.
+        /// Editor-only: sets the bus. Used by AudioPostprocessor when classifying clips.
         /// </summary>
-        public void EditorSetType(AudioType type)
+        public void EditorSetBus(AudioBusAsset bus)
         {
-            _type = type;
+            _bus = bus;
         }
 
         /// <summary>

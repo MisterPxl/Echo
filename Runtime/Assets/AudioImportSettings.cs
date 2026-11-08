@@ -5,7 +5,7 @@ namespace Astra.Echo
 {
     /// <summary>
     /// Asset describing how the editor pipeline should configure newly-imported audio clips
-    /// and how to classify them between SFX / Music. The asset itself stays runtime-safe
+    /// and which bus new definitions get. The asset itself stays runtime-safe
     /// (no UnityEditor references) so it can live next to the consumer's other audio assets.
     ///
     /// Used by the Editor-side AudioPostprocessor.
@@ -17,9 +17,15 @@ namespace Astra.Echo
         public const string DefaultGeneratedOutputFolder = "Assets/Echo/Generated";
 
         [Header("Classification")]
-        [Tooltip("Clips longer than this duration (seconds) are classified as Music. " +
-                 "Anything shorter is classified as SFX. Ambient classification stays manual.")]
+        [Tooltip("Clips longer than this duration (seconds) get the music bus. " +
+                 "Anything shorter gets the SFX bus. Any other bus is assigned by hand.")]
         [SerializeField, Min(0.1f)] private float _musicDurationThresholdSeconds = 8f;
+
+        [Tooltip("Bus of auto-created definitions whose clip reaches the threshold (Echo ships MusicBus).")]
+        [SerializeField] private AudioBusAsset _musicBus;
+
+        [Tooltip("Bus of auto-created definitions whose clip is shorter than the threshold (Echo ships SfxBus).")]
+        [SerializeField] private AudioBusAsset _sfxBus;
 
         [Header("Default profiles")]
         [SerializeField] private AudioImportProfile _sfx = AudioImportProfile.SfxDefault();
@@ -47,14 +53,14 @@ namespace Astra.Echo
         [SerializeField] private bool _applyImportProfiles = true;
 
         public float MusicDurationThresholdSeconds => _musicDurationThresholdSeconds;
+        public AudioBusAsset MusicBus => _musicBus;
+        public AudioBusAsset SfxBus => _sfxBus;
         public AudioImportProfile SfxProfile => _sfx;
         public AudioImportProfile MusicProfile => _music;
         public bool AutoCreateDefinitions => _autoCreateDefinitions;
         public string DefinitionOutputFolder => _definitionOutputFolder;
         public string GeneratedOutputFolder => _generatedOutputFolder;
         public bool ApplyImportProfiles => _applyImportProfiles;
-
-        public AudioImportProfile ProfileFor(AudioType type) => type == AudioType.Music ? _music : _sfx;
 
         /// <summary>
         /// Returns true if the given asset path falls inside an auto-create scope.

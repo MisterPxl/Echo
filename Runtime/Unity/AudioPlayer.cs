@@ -4,7 +4,7 @@ using UnityEngine.Audio;
 namespace Astra.Echo
 {
     /// <summary>
-    /// Single-channel player used for music or ambient tracks.
+    /// Track player of a <see cref="SingleTrackPlayback"/> bus.
     /// Wraps one persistent <see cref="AudioSource"/> and exposes
     /// minimal play / stop / volume controls. Implements
     /// <see cref="IAudioHandle"/> so callers can keep stopping the active track.
@@ -17,6 +17,8 @@ namespace Astra.Echo
 
         public bool IsPlaying => _source != null && _source.isPlaying;
         public AudioClip CurrentClip => _source != null ? _source.clip : null;
+
+        internal AudioSource Source => _source;
 
         internal void Setup(AudioMixerGroup defaultMixerGroup)
         {

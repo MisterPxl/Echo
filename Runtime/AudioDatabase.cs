@@ -8,7 +8,7 @@ namespace Astra.Echo
     /// The editor pipeline keeps the serialized list in sync; runtime builds a
     /// lookup dictionary on demand for O(1) resolution.
     ///
-    /// <para>Validation: duplicate ids and null entries are filtered out and logged
+    /// <para>Validation: duplicate ids, null entries and definitions without a bus are reported
     /// (only) on <see cref="LogValidation"/> — kept off the hot path on purpose.</para>
     /// </summary>
     [CreateAssetMenu(fileName = "AudioDatabase", menuName = "Astra/Echo/Audio Database")]
@@ -132,6 +132,9 @@ namespace Astra.Echo
 
                 if (!seenIds.Add(def.Id))
                     warnings.Add($"Duplicate AudioId for '{def.name}' ({def.Id}).");
+
+                if (def.Bus == null)
+                    warnings.Add($"Definition '{def.name}' has no bus.");
             }
             return warnings;
         }

@@ -1,9 +1,9 @@
 {
   "name": "com.misterpxl.echo",
   "displayName": "Astra Echo — Data-driven Audio",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "unity": "6000.0",
-  "description": "Data-driven audio for Unity: typed AudioId, AudioDefinition and AudioDatabase, volume buses, pooled SFX, single-channel music and ambient, open modulator and option extension points, and an import pipeline. No dependency on any framework.",
+  "description": "Data-driven audio for Unity: typed AudioId, AudioDefinition and AudioDatabase, volume buses as assets under Master (single-track or pooled one-shot playback, open to project behaviours), open modulator and option extension points, and an import pipeline. No dependency on any framework.",
   "keywords": ["audio", "sfx", "music", "data-driven", "astra"],
   "author": { "name": "MisterPxl" },
   "license": "MIT",

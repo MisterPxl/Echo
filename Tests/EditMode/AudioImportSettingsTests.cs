@@ -1,5 +1,6 @@
 using Astra.Echo.Editor;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace Astra.Echo.Tests
@@ -21,27 +22,50 @@ namespace Astra.Echo.Tests
         }
 
         [Test]
-        public void ProfileFor_ChoosesMusicOnlyForMusicType()
+        public void Profiles_StreamMusicAndDecompressSfx()
         {
-            Assert.That(_settings.ProfileFor(AudioType.Music).LoadType, Is.EqualTo(AudioClipLoadType.Streaming));
-            Assert.That(_settings.ProfileFor(AudioType.Sfx).LoadType, Is.EqualTo(AudioClipLoadType.DecompressOnLoad));
-            Assert.That(_settings.ProfileFor(AudioType.Ambient).LoadType, Is.EqualTo(AudioClipLoadType.DecompressOnLoad));
+            Assert.That(_settings.MusicProfile.LoadType, Is.EqualTo(AudioClipLoadType.Streaming));
+            Assert.That(_settings.SfxProfile.LoadType, Is.EqualTo(AudioClipLoadType.DecompressOnLoad));
         }
 
         [Test]
-        public void ClassifyByDuration_UsesTheThreshold()
+        public void ClassifyByDuration_PicksTheConfiguredBusFromTheThreshold()
         {
+            AudioBusAsset music = EchoTestUtil.CreateBus("Music", new SingleTrackPlayback());
+            AudioBusAsset sfx = EchoTestUtil.CreateBus("Sfx", new OneShotPoolPlayback());
             AudioClip shortClip = EchoTestUtil.CreateClip("Short", 1f);
             AudioClip longClip = EchoTestUtil.CreateClip("Long", 10f);
             try
             {
-                Assert.That(AudioDefinitionFactory.ClassifyByDuration(shortClip, _settings), Is.EqualTo(AudioType.Sfx));
-                Assert.That(AudioDefinitionFactory.ClassifyByDuration(longClip, _settings), Is.EqualTo(AudioType.Music));
-                Assert.That(AudioDefinitionFactory.ClassifyByDuration(null, _settings), Is.EqualTo(AudioType.Sfx));
+                using (SerializedObject serialized = new SerializedObject(_settings))
+                {
+                    serialized.FindProperty("_musicBus").objectReferenceValue = music;
+                    serialized.FindProperty("_sfxBus").objectReferenceValue = sfx;
+                    serialized.ApplyModifiedPropertiesWithoutUndo();
+                }
+
+                Assert.That(AudioDefinitionFactory.ClassifyByDuration(shortClip, _settings), Is.SameAs(sfx));
+                Assert.That(AudioDefinitionFactory.ClassifyByDuration(longClip, _settings), Is.SameAs(music));
+                Assert.That(AudioDefinitionFactory.ClassifyByDuration(null, _settings), Is.SameAs(sfx));
+                Assert.That(AudioDefinitionFactory.ClassifyByDuration(longClip, null), Is.Null);
             }
             finally
             {
-                EchoTestUtil.Destroy(shortClip, longClip);
+                EchoTestUtil.Destroy(shortClip, longClip, music, sfx);
+            }
+        }
+
+        [Test]
+        public void ClassifyByDuration_WithoutConfiguredBusesYieldsNoBus()
+        {
+            AudioClip longClip = EchoTestUtil.CreateClip("Long", 10f);
+            try
+            {
+                Assert.That(AudioDefinitionFactory.ClassifyByDuration(longClip, _settings), Is.Null);
+            }
+            finally
+            {
+                EchoTestUtil.Destroy(longClip);
             }
         }
 

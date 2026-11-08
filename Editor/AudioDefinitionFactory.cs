@@ -6,8 +6,8 @@ namespace Astra.Echo.Editor
 {
     /// <summary>
     /// Editor utility that creates and persists <see cref="AudioDefinition"/> assets
-    /// from imported <see cref="AudioClip"/> files. Handles classification (SFX vs Music
-    /// based on duration), id assignment from the asset GUID, and addition to the
+    /// from imported <see cref="AudioClip"/> files. Handles bus classification (the music or SFX
+    /// bus of <see cref="AudioImportSettings"/>, by duration), id assignment from the asset GUID, and addition to the
     /// project's primary <see cref="AudioDatabase"/>.
     /// </summary>
     [UnityEngine.Scripting.APIUpdating.MovedFrom(false, "Core.Audio.Editor", "Core.Audio.Editor", "AudioDefinitionFactory")]
@@ -41,7 +41,10 @@ namespace Astra.Echo.Editor
 
             AudioDefinition def = ScriptableObject.CreateInstance<AudioDefinition>();
             def.EditorSetClip(clip);
-            def.EditorSetType(ClassifyByDuration(clip, settings));
+            AudioBusAsset bus = ClassifyByDuration(clip, settings);
+            def.EditorSetBus(bus);
+            if (bus == null)
+                Debug.LogWarning($"[Echo] No bus for clip '{clip.name}': assign the music and SFX buses of AudioImportSettings, then set the definition bus.");
 
             AssetDatabase.CreateAsset(def, assetPath);
 
@@ -60,10 +63,12 @@ namespace Astra.Echo.Editor
             return def;
         }
 
-        public static AudioType ClassifyByDuration(AudioClip clip, AudioImportSettings settings)
+        /// <summary>The music bus of <paramref name="settings"/> for clips reaching its threshold, its SFX bus otherwise; null without settings.</summary>
+        public static AudioBusAsset ClassifyByDuration(AudioClip clip, AudioImportSettings settings)
         {
-            if (clip == null || settings == null) return AudioType.Sfx;
-            return clip.length >= settings.MusicDurationThresholdSeconds ? AudioType.Music : AudioType.Sfx;
+            if (settings == null) return null;
+            if (clip == null) return settings.SfxBus;
+            return clip.length >= settings.MusicDurationThresholdSeconds ? settings.MusicBus : settings.SfxBus;
         }
 
         private static string ResolveOutputDirectory(AudioImportSettings settings, string clipPath)

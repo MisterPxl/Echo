@@ -6,7 +6,7 @@ namespace Astra.Echo
     /// Mutable, per-playback context passed to <see cref="ISoundOption.Apply"/> and
     /// <see cref="ISoundModulator.Modulate"/>. Modulators may:
     /// <list type="bullet">
-    ///   <item>Inspect the resolved <see cref="Definition"/>, <see cref="Type"/>,
+    ///   <item>Inspect the resolved <see cref="Definition"/>, <see cref="Bus"/>,
     ///         <see cref="EffectiveVolume"/>, <see cref="BasePitch"/>.</item>
     ///   <item>Override the played <see cref="ClipOverride"/> (selection modulators).</item>
     ///   <item>Cancel the playback altogether by calling <see cref="Veto"/> with a reason
@@ -17,7 +17,7 @@ namespace Astra.Echo
     public sealed class AudioPlaybackContext
     {
         public AudioDefinition Definition { get; }
-        public AudioType Type { get; }
+        public AudioBusAsset Bus { get; }
         public float EffectiveVolume { get; }
         public float BasePitch { get; }
 
@@ -35,10 +35,10 @@ namespace Astra.Echo
         /// </summary>
         public bool SuppressDefaultPlay { get; set; }
 
-        public AudioPlaybackContext(AudioDefinition definition, AudioType type, float effectiveVolume, float basePitch)
+        public AudioPlaybackContext(AudioDefinition definition, AudioBusAsset bus, float effectiveVolume, float basePitch)
         {
             Definition = definition;
-            Type = type;
+            Bus = bus;
             EffectiveVolume = effectiveVolume;
             BasePitch = basePitch;
         }

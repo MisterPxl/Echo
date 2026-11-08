@@ -5,7 +5,7 @@ using UnityEngine.Audio;
 namespace Astra.Echo
 {
     /// <summary>
-    /// Pool of <see cref="AudioSource"/> components for one-shot SFX.
+    /// Pool of <see cref="AudioSource"/> components of a <see cref="OneShotPoolPlayback"/> bus.
     /// Reuses idle sources and grows on demand (capped by <c>maxSize</c> if set).
     /// Sources are reset before each use so caller-side spatial / pitch tweaks
     /// don't leak into the next playback.
@@ -47,6 +47,18 @@ namespace Astra.Echo
             AudioSource created = CreateSource();
             ResetSource(created);
             return created;
+        }
+
+        internal bool IsAnyPlaying
+        {
+            get
+            {
+                for (int i = 0; i < _sources.Count; i++)
+                {
+                    if (_sources[i].isPlaying) return true;
+                }
+                return false;
+            }
         }
 
         internal void StopAll()

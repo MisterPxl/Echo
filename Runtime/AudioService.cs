@@ -7,55 +7,32 @@ namespace Astra.Echo
 {
     /// <summary>
     /// Main implementation of <see cref="IAudioService"/>.
-    /// Resolves <see cref="AudioId"/> through an <see cref="IAudioDatabase"/>,
-    /// routes playback to the appropriate channel based on <see cref="AudioType"/>:
-    /// <list type="bullet">
-    ///   <item><see cref="AudioType.Music"/> → single music channel (replaces current track).</item>
-    ///   <item><see cref="AudioType.Ambient"/> → single ambient channel (replaces current track).</item>
-    ///   <item><see cref="AudioType.Sfx"/> → pooled one-shot.</item>
-    /// </list>
+    /// Resolves <see cref="AudioId"/> through an <see cref="IAudioDatabase"/> and plays the definition
+    /// on the channel of its <see cref="AudioBusAsset"/>, built by the bus <see cref="AudioBusPlayback"/>
+    /// (single replaced track, pooled one-shots, or a project behaviour). A bus is created the first
+    /// time it is met; <see cref="AudioServiceSettings.Buses"/> only prepares channels ahead of time.
     /// Applies the definition's modulators, then any caller-side modulators / options.
     /// </summary>
     [UnityEngine.Scripting.APIUpdating.MovedFrom(false, "Core.Audio", "Core.Audio", "AudioService")]
     public sealed class AudioService : IAudioService, IRawClipAudioService, IDisposable
     {
-        private readonly AudioVolumeSettings _volumes = new AudioVolumeSettings();
+        private readonly Dictionary<AudioBusAsset, BusState> _states = new Dictionary<AudioBusAsset, BusState>();
+        private readonly List<AudioBusAsset> _buses = new List<AudioBusAsset>();
         private readonly IEchoLogger _logger;
         private readonly bool _verbose;
 
         private IAudioDatabase _database;
         private AudioRoot _root;
-        private AudioMixerGroup _musicGroup;
-        private AudioMixerGroup _sfxGroup;
-        private AudioMixerGroup _ambientGroup;
-        private bool _ownsRoot;
-
-        public bool IsMusicPlaying => _root != null && _root.MusicPlayer.IsPlaying;
-        public bool IsAmbientPlaying => _root != null && _root.AmbientPlayer.IsPlaying;
+        private AudioBusAsset _rawClipBus;
+        private float _master = 1f;
 
         public float MasterVolume
         {
-            get => _volumes.Master;
-            set { _volumes.Master = value; ApplyChannelVolumes(); }
+            get => _master;
+            set { _master = Mathf.Clamp01(value); ApplyChannelVolumes(); }
         }
 
-        public float MusicVolume
-        {
-            get => _volumes.Music;
-            set { _volumes.Music = value; ApplyChannelVolumes(); }
-        }
-
-        public float SfxVolume
-        {
-            get => _volumes.Sfx;
-            set => _volumes.Sfx = value;
-        }
-
-        public float AmbientVolume
-        {
-            get => _volumes.Ambient;
-            set { _volumes.Ambient = value; ApplyChannelVolumes(); }
-        }
+        public IReadOnlyList<AudioBusAsset> Buses => _buses;
 
         public AudioService(IEchoLogger logger = null, bool verbose = false)
         {
@@ -63,35 +40,10 @@ namespace Astra.Echo
             _verbose = verbose;
         }
 
-        internal void SetRoot(AudioRoot root)
-        {
-            _root = root;
-            _ownsRoot = false;
-        }
-
-        internal void SetDatabase(IAudioDatabase database)
-        {
-            _database = database;
-        }
-
-        internal void SetMixerRouting(AudioMixerGroup music, AudioMixerGroup sfx, AudioMixerGroup ambient)
-        {
-            _musicGroup = music;
-            _sfxGroup = sfx;
-            _ambientGroup = ambient;
-        }
-
-        internal void ApplyDefaults(in AudioVolumesDefaults defaults)
-        {
-            _volumes.Master  = defaults.Master;
-            _volumes.Music   = defaults.Music;
-            _volumes.Sfx     = defaults.Sfx;
-            _volumes.Ambient = defaults.Ambient;
-        }
-
         /// <summary>
-        /// Builds the <see cref="AudioRoot"/> (music, ambient, SFX pool), wires the database,
-        /// mixer routing and default volumes. Replaces any root previously created by this service.
+        /// Builds the <see cref="AudioRoot"/> and the channel of every configured bus, wires the database
+        /// and the raw clip bus, and resets volumes to Master and bus defaults. Replaces any root
+        /// previously created by this service.
         /// </summary>
         /// <param name="settings">Initialisation settings; must not be null.</param>
         /// <param name="parent">Optional parent for the root. When null the root persists across scenes.</param>
@@ -99,50 +51,71 @@ namespace Astra.Echo
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
 
-            DestroyOwnedRoot();
+            DestroyRoot();
+            _states.Clear();
+            _buses.Clear();
 
-            AudioRoot root = AudioRoot.Create(
-                settings.RootName, parent,
-                settings.SfxPoolInitialSize, settings.SfxPoolMaxSize,
-                settings.MusicMixerGroup, settings.SfxMixerGroup, settings.AmbientMixerGroup);
+            _root = AudioRoot.Create(settings.RootName, parent);
+            _database = settings.Database;
+            _rawClipBus = settings.RawClipBus;
+            _master = Mathf.Clamp01(settings.MasterVolume);
 
-            _root = root;
-            _ownsRoot = true;
-            SetMixerRouting(settings.MusicMixerGroup, settings.SfxMixerGroup, settings.AmbientMixerGroup);
-            SetDatabase(settings.Database);
-            ApplyDefaults(settings.Volumes);
+            if (settings.Buses != null)
+            {
+                for (int i = 0; i < settings.Buses.Count; i++)
+                {
+                    if (settings.Buses[i] != null) PrepareChannel(settings.Buses[i]);
+                }
+            }
 
-            LogVerbose(() => $"Initialized — root: '{settings.RootName}', SFX pool: {settings.SfxPoolInitialSize} (max {settings.SfxPoolMaxSize}).");
+            if (_rawClipBus != null) PrepareChannel(_rawClipBus);
+
+            LogVerbose(() => $"Initialized — root: '{settings.RootName}', buses: {DescribeBuses()}.");
+        }
+
+        private void PrepareChannel(AudioBusAsset bus)
+        {
+            if (ChannelFor(StateFor(bus), out string failure) == null)
+                _logger?.Warn(failure);
         }
 
         /// <summary>Destroys the <see cref="AudioRoot"/> created by <see cref="Initialize"/>, if any.</summary>
         public void Dispose()
         {
-            DestroyOwnedRoot();
-            _root = null;
+            DestroyRoot();
             _database = null;
         }
 
-        private void DestroyOwnedRoot()
+        private void DestroyRoot()
         {
-            if (_ownsRoot && _root != null)
+            if (_root != null)
                 UnityEngine.Object.Destroy(_root.gameObject);
 
-            _ownsRoot = false;
+            _root = null;
+            foreach (BusState state in _states.Values)
+                state.Channel = null;
         }
 
-        public void SetVolume(AudioCategory category, float volume)
+        public float GetVolume(AudioBusAsset bus)
         {
-            switch (category)
-            {
-                case AudioCategory.Master:  MasterVolume  = volume; break;
-                case AudioCategory.Music:   MusicVolume   = volume; break;
-                case AudioCategory.Sfx:     SfxVolume     = volume; break;
-                case AudioCategory.Ambient: AmbientVolume = volume; break;
-            }
+            if (bus == null) throw new ArgumentNullException(nameof(bus));
+            return _states.TryGetValue(bus, out BusState state) ? state.Volume : bus.DefaultVolume;
         }
 
-        public float GetVolume(AudioCategory category) => _volumes.EffectiveFor(category);
+        public void SetVolume(AudioBusAsset bus, float volume)
+        {
+            BusState state = StateFor(bus);
+            state.Volume = Mathf.Clamp01(volume);
+            state.Channel?.OnVolumeChanged(EffectiveVolume(state));
+        }
+
+        public bool IsPlaying(AudioBusAsset bus)
+        {
+            return bus != null
+                && _states.TryGetValue(bus, out BusState state)
+                && state.Channel != null
+                && state.Channel.IsPlaying;
+        }
 
         public AudioRequest CreateRequest(AudioId id) => new AudioRequest(this, id);
 
@@ -172,14 +145,12 @@ namespace Astra.Echo
             if (def.Clip == null)
                 return AudioPlaybackResult.Fail($"Definition '{def.name}' has no clip.");
 
+            if (def.Bus == null)
+                return AudioPlaybackResult.Fail($"Definition '{def.name}' has no bus.");
+
             try
             {
-                return def.Type switch
-                {
-                    AudioType.Music   => PlayOnPlayer(_root.MusicPlayer,   def, request, AudioCategory.Music),
-                    AudioType.Ambient => PlayOnPlayer(_root.AmbientPlayer, def, request, AudioCategory.Ambient),
-                    _                 => PlaySfxInternal(def, request),
-                };
+                return PlayOnBus(def, request);
             }
             catch (Exception ex)
             {
@@ -188,27 +159,16 @@ namespace Astra.Echo
             }
         }
 
-        public AudioPlaybackResult StopMusic()
+        public AudioPlaybackResult Stop(AudioBusAsset bus)
         {
+            if (bus == null) return AudioPlaybackResult.Fail("Stop: bus is null.");
             if (_root == null) return AudioPlaybackResult.Fail("AudioService not initialized.");
-            _root.MusicPlayer.Stop();
-            LogVerbose("Music stopped.");
-            return AudioPlaybackResult.Succeed("Music stopped.");
-        }
 
-        public AudioPlaybackResult StopAmbient()
-        {
-            if (_root == null) return AudioPlaybackResult.Fail("AudioService not initialized.");
-            _root.AmbientPlayer.Stop();
-            LogVerbose("Ambient stopped.");
-            return AudioPlaybackResult.Succeed("Ambient stopped.");
-        }
+            if (_states.TryGetValue(bus, out BusState state) && state.Channel != null)
+                state.Channel.Stop();
 
-        public void StopAllSfx()
-        {
-            if (_root == null) return;
-            _root.SfxPool.StopAll();
-            LogVerbose("All SFX stopped.");
+            LogVerbose(() => $"Bus '{bus.DisplayName}' stopped.");
+            return AudioPlaybackResult.Succeed($"Bus '{bus.DisplayName}' stopped.");
         }
 
         public AudioPlaybackResult PlaySfx(AudioClip clip, float volumeScale = 1f)
@@ -224,114 +184,82 @@ namespace Astra.Echo
             }
 
             if (_root == null) return AudioPlaybackResult.Fail("AudioService not initialized.");
+            if (_rawClipBus == null) return AudioPlaybackResult.Fail("PlaySfx: no raw clip bus configured (AudioServiceSettings.RawClipBus).");
 
-            AudioSource source = _root.SfxPool.Acquire();
-            if (source == null) return AudioPlaybackResult.Fail("SFX pool exhausted.");
+            BusState state = StateFor(_rawClipBus);
+            AudioBusChannel channel = ChannelFor(state, out string failure);
+            AudioSource source = channel != null ? channel.Acquire(out failure) : null;
+            if (source == null) return AudioPlaybackResult.Fail(failure);
 
-            float volume = Mathf.Clamp01(volumeScale) * _volumes.EffectiveSfx;
+            float volume = Mathf.Clamp01(volumeScale) * EffectiveVolume(state);
             source.clip = clip;
             source.loop = false;
             source.volume = volume;
             source.pitch = 1f;
             source.spatialBlend = 0f;
-            source.outputAudioMixerGroup = _sfxGroup;
+            source.outputAudioMixerGroup = _rawClipBus.MixerGroup;
             source.Play();
 
-            LogVerbose(() => $"SFX (raw clip): '{clip.name}' (vol={volume:F2}).");
-            return AudioPlaybackResult.Succeed($"SFX '{clip.name}' played (raw clip).");
+            LogVerbose(() => $"{_rawClipBus.DisplayName} (raw clip): '{clip.name}' (vol={volume:F2}).");
+            return AudioPlaybackResult.Succeed($"'{clip.name}' played on bus '{_rawClipBus.DisplayName}' (raw clip).", channel.HandleFor(source));
         }
 
-        private AudioPlaybackResult PlayOnPlayer(
-            AudioPlayer player,
-            AudioDefinition def,
-            in AudioPlaybackRequest request,
-            AudioCategory category)
+        private AudioPlaybackResult PlayOnBus(AudioDefinition def, in AudioPlaybackRequest request)
         {
-            AudioSource source = player.GetComponent<AudioSource>();
-            AudioPlaybackContext ctx = ConfigureSource(source, def, request, category, applySpatial: false);
+            BusState state = StateFor(def.Bus);
+            string busName = def.Bus.DisplayName;
 
-            if (ctx.IsVetoed)
-            {
-                LogVerbose(() => $"{def.Type} '{def.name}' vetoed: {ctx.VetoReason}");
-                return AudioPlaybackResult.Fail($"{def.Type} '{def.name}' vetoed: {ctx.VetoReason}");
-            }
-
-            if (ctx.ClipOverride != null) source.clip = ctx.ClipOverride;
-            if (!ctx.SuppressDefaultPlay) source.Play();
-
-            bool loop = request.LoopOverride ?? def.BaseLoop;
-            LogVerbose(() => $"{def.Type}: '{def.name}' (vol={source.volume:F2}, pitch={source.pitch:F2}, loop={loop}).");
-            return AudioPlaybackResult.Succeed($"{def.Type} '{def.name}' started.", player);
-        }
-
-        private AudioPlaybackResult PlaySfxInternal(AudioDefinition def, in AudioPlaybackRequest request)
-        {
-            AudioSource source = _root.SfxPool.Acquire();
+            AudioBusChannel channel = ChannelFor(state, out string failure);
+            AudioSource source = channel != null ? channel.Acquire(out failure) : null;
             if (source == null)
             {
-                _logger?.Warn($"SFX pool saturated, dropping playback of '{def.name}'.");
-                return AudioPlaybackResult.Fail("SFX pool exhausted.");
+                _logger?.Warn($"Dropping playback of '{def.name}': {failure}");
+                return AudioPlaybackResult.Fail(failure);
             }
 
-            AudioPlaybackContext ctx = ConfigureSource(source, def, request, AudioCategory.Sfx, applySpatial: true);
+            AudioPlaybackContext ctx = ConfigureSource(source, def, request, state, channel.IsSpatial);
 
             if (ctx.IsVetoed)
             {
-                LogVerbose(() => $"SFX '{def.name}' vetoed: {ctx.VetoReason}");
-                return AudioPlaybackResult.Fail($"SFX '{def.name}' vetoed: {ctx.VetoReason}");
+                LogVerbose(() => $"{busName} '{def.name}' vetoed: {ctx.VetoReason}");
+                return AudioPlaybackResult.Fail($"{busName} '{def.name}' vetoed: {ctx.VetoReason}");
             }
 
             if (ctx.ClipOverride != null) source.clip = ctx.ClipOverride;
             if (!ctx.SuppressDefaultPlay) source.Play();
 
-            LogVerbose(() => $"SFX: '{def.name}' (vol={source.volume:F2}, pitch={source.pitch:F2}).");
-            return AudioPlaybackResult.Succeed($"SFX '{def.name}' played.");
+            LogVerbose(() => $"{busName}: '{def.name}' (vol={source.volume:F2}, pitch={source.pitch:F2}, loop={source.loop}).");
+            return AudioPlaybackResult.Succeed($"{busName} '{def.name}' played.", channel.HandleFor(source));
         }
 
         private AudioPlaybackContext ConfigureSource(
             AudioSource source,
             AudioDefinition def,
             in AudioPlaybackRequest request,
-            AudioCategory category,
+            BusState state,
             bool applySpatial)
         {
-            float effectiveVolume = ResolveVolume(def, request, category);
-            float pitch = ResolvePitch(def, request);
+            float scale = request.VolumeScale ?? 1f;
+            float effectiveVolume = Mathf.Clamp01(def.BaseVolume * Mathf.Clamp01(scale)) * EffectiveVolume(state);
+            float pitch = request.PitchOverride ?? def.BasePitch;
             bool loop = request.LoopOverride ?? def.BaseLoop;
 
             source.clip = def.Clip;
             source.loop = loop;
             source.volume = effectiveVolume;
             source.pitch = pitch;
-            source.outputAudioMixerGroup = ResolveMixerGroup(def, category);
+            source.outputAudioMixerGroup = ResolveMixerGroup(def, state.Bus);
 
             if (applySpatial) ApplySpatial(source, def, request);
 
-            AudioPlaybackContext ctx = new AudioPlaybackContext(def, def.Type, effectiveVolume, pitch);
+            AudioPlaybackContext ctx = new AudioPlaybackContext(def, state.Bus, effectiveVolume, pitch);
             ApplyModulatorsAndOptions(source, def, request, ctx);
             return ctx;
         }
 
-        private float ResolveVolume(AudioDefinition def, in AudioPlaybackRequest request, AudioCategory category)
+        private static AudioMixerGroup ResolveMixerGroup(AudioDefinition def, AudioBusAsset bus)
         {
-            float scale = request.VolumeScale ?? 1f;
-            return Mathf.Clamp01(def.BaseVolume * Mathf.Clamp01(scale)) * _volumes.EffectiveFor(category);
-        }
-
-        private static float ResolvePitch(AudioDefinition def, in AudioPlaybackRequest request)
-        {
-            return request.PitchOverride ?? def.BasePitch;
-        }
-
-        private AudioMixerGroup ResolveMixerGroup(AudioDefinition def, AudioCategory category)
-        {
-            if (def.MixerGroupOverride != null) return def.MixerGroupOverride;
-            return category switch
-            {
-                AudioCategory.Music   => _musicGroup,
-                AudioCategory.Ambient => _ambientGroup,
-                _                     => _sfxGroup,
-            };
+            return def.MixerGroupOverride != null ? def.MixerGroupOverride : bus.MixerGroup;
         }
 
         private static void ApplySpatial(AudioSource source, AudioDefinition def, in AudioPlaybackRequest request)
@@ -390,16 +318,46 @@ namespace Astra.Echo
             }
         }
 
-        private void ApplyChannelVolumes()
+        private BusState StateFor(AudioBusAsset bus)
         {
-            if (_root == null) return;
-            if (_root.MusicPlayer.IsPlaying)   _root.MusicPlayer.SetVolume(_volumes.EffectiveMusic);
-            if (_root.AmbientPlayer.IsPlaying) _root.AmbientPlayer.SetVolume(_volumes.EffectiveAmbient);
+            if (bus == null) throw new ArgumentNullException(nameof(bus));
+            if (_states.TryGetValue(bus, out BusState state)) return state;
+
+            state = new BusState(bus);
+            _states.Add(bus, state);
+            _buses.Add(bus);
+            return state;
         }
 
-        private void LogVerbose(string message)
+        private AudioBusChannel ChannelFor(BusState state, out string failure)
         {
-            if (_verbose) _logger?.Info(message);
+            failure = null;
+            if (state.Channel != null) return state.Channel;
+
+            if (state.Bus.Playback == null)
+            {
+                failure = $"Bus '{state.Bus.DisplayName}' has no playback behaviour.";
+                return null;
+            }
+
+            state.Channel = state.Bus.Playback.CreateChannel(state.Bus, _root.transform);
+            return state.Channel;
+        }
+
+        private float EffectiveVolume(BusState state) => _master * state.Volume;
+
+        private void ApplyChannelVolumes()
+        {
+            foreach (BusState state in _states.Values)
+                state.Channel?.OnVolumeChanged(EffectiveVolume(state));
+        }
+
+        private string DescribeBuses()
+        {
+            string[] names = new string[_buses.Count];
+            for (int i = 0; i < _buses.Count; i++)
+                names[i] = _buses[i].DisplayName;
+            return names.Length == 0 ? "none" : string.Join(", ", names);
         }
 
         private void LogVerbose(Func<string> messageFactory)
@@ -407,6 +365,19 @@ namespace Astra.Echo
             if (!_verbose || _logger == null) return;
             if (!_logger.IsInfoEnabled) return;
             _logger.Info(messageFactory());
+        }
+
+        private sealed class BusState
+        {
+            public readonly AudioBusAsset Bus;
+            public float Volume;
+            public AudioBusChannel Channel;
+
+            public BusState(AudioBusAsset bus)
+            {
+                Bus = bus;
+                Volume = bus.DefaultVolume;
+            }
         }
     }
 }

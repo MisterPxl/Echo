@@ -32,11 +32,9 @@ namespace Astra.Echo.Editor
             if (settings == null || !settings.ApplyImportProfiles) return;
 
             AudioImporter importer = (AudioImporter)assetImporter;
-            // We can't know the actual clip duration before import,
-            // but we can default-classify based on file name hints, and the post-pass
-            // will reclassify and re-apply if needed.
-            AudioType type = GuessTypeFromName(assetPath);
-            ApplyProfile(importer, settings.ProfileFor(type));
+            // The clip duration is unknown before import: the profile follows file name hints,
+            // the bus is chosen by duration once the definition is created.
+            ApplyProfile(importer, LooksLikeMusic(assetPath) ? settings.MusicProfile : settings.SfxProfile);
         }
 
         private static void OnPostprocessAllAssets(
@@ -154,12 +152,10 @@ namespace Astra.Echo.Editor
             return false;
         }
 
-        private static AudioType GuessTypeFromName(string assetPath)
+        private static bool LooksLikeMusic(string assetPath)
         {
             string lower = assetPath.ToLowerInvariant();
-            if (lower.Contains("/music/") || lower.Contains("_music")) return AudioType.Music;
-            if (lower.Contains("/ambient/") || lower.Contains("_ambient")) return AudioType.Ambient;
-            return AudioType.Sfx;
+            return lower.Contains("/music/") || lower.Contains("_music");
         }
 
         private static void ApplyProfile(AudioImporter importer, AudioImportProfile profile)

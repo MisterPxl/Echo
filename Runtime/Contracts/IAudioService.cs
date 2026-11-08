@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Astra.Echo
 {
     /// <summary>
@@ -6,28 +8,27 @@ namespace Astra.Echo
     /// <see cref="AudioDefinition"/> assets through an <see cref="IAudioDatabase"/>.
     ///
     /// <para>
-    /// Volume controls are organized by <see cref="AudioCategory"/> (Master / Music / Sfx / Ambient).
-    /// Music and Ambient are single-channel (calling Play replaces the current track).
-    /// SFX are pooled and can play concurrently.
+    /// Volumes are organized by <see cref="AudioBusAsset"/>, under <see cref="MasterVolume"/>:
+    /// a source plays at definition volume × bus volume × Master. The bus playback decides the
+    /// channel: a single track replaced by the next Play, or pooled one-shots.
     /// </para>
     /// </summary>
     [UnityEngine.Scripting.APIUpdating.MovedFrom(false, "Core.Audio", "Core.Audio", "IAudioService")]
     public interface IAudioService
     {
         float MasterVolume { get; set; }
-        float MusicVolume { get; set; }
-        float SfxVolume { get; set; }
-        float AmbientVolume { get; set; }
 
-        bool IsMusicPlaying { get; }
-        bool IsAmbientPlaying { get; }
+        /// <summary>Buses known to the service: the configured ones, then every bus met since.</summary>
+        IReadOnlyList<AudioBusAsset> Buses { get; }
 
-        void SetVolume(AudioCategory category, float volume);
-        float GetVolume(AudioCategory category);
+        /// <summary>Bus volume before Master; the bus default until set.</summary>
+        float GetVolume(AudioBusAsset bus);
+        void SetVolume(AudioBusAsset bus, float volume);
+
+        bool IsPlaying(AudioBusAsset bus);
 
         /// <summary>
-        /// Plays the definition associated with the given id using its declared <see cref="AudioType"/>.
-        /// SFX → pooled one-shot. Music → single music channel. Ambient → single ambient channel.
+        /// Plays the definition associated with the given id on its <see cref="AudioDefinition.Bus"/>.
         /// </summary>
         AudioPlaybackResult Play(AudioId id);
 
@@ -41,12 +42,7 @@ namespace Astra.Echo
         /// </summary>
         AudioRequest CreateRequest(AudioId id);
 
-        AudioPlaybackResult StopMusic();
-        AudioPlaybackResult StopAmbient();
-
-        /// <summary>
-        /// Stops every active SFX returned by the pool. Music / Ambient channels are untouched.
-        /// </summary>
-        void StopAllSfx();
+        /// <summary>Stops everything playing on the bus. Other buses are untouched.</summary>
+        AudioPlaybackResult Stop(AudioBusAsset bus);
     }
 }
