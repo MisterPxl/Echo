@@ -15,7 +15,7 @@ namespace Astra.Echo
 
             if (parent != null)
                 go.transform.SetParent(parent, false);
-            else
+            else if (Application.isPlaying)
                 DontDestroyOnLoad(go);
 
             return go.AddComponent<AudioRoot>();

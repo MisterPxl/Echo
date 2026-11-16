@@ -61,7 +61,7 @@ namespace Astra.Echo.Tests
 
             Assert.That(
                 AudioDatabaseAssignment.ResolveDefaultDatabaseAssetPath(scopes, null),
-                Is.EqualTo("Assets/Audio/AudioDatabase.asset"));
+                Is.EqualTo("Assets/Z/AudioDatabase.asset"));
         }
     }
 }

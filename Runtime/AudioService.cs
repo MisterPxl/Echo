@@ -103,11 +103,13 @@ namespace Astra.Echo
 
         public float GetVolume(AudioBusAsset bus)
         {
+            if (bus == null) throw new ArgumentNullException(nameof(bus));
+
             BusState state = ResolveBusState(bus, createIfMissing: false);
             if (state != null)
                 return state.Volume;
 
-            return bus != null ? bus.DefaultVolume : 0f;
+            return bus.DefaultVolume;
         }
 
         public void SetVolume(AudioBusAsset bus, float volume)
