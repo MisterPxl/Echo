@@ -221,6 +221,7 @@ namespace Astra.Echo
 
             if (ctx.IsVetoed)
             {
+                channel.DiscardAcquire(source);
                 LogVerbose(() => $"{busName} '{def.name}' vetoed: {ctx.VetoReason}");
                 return AudioPlaybackResult.Fail($"{busName} '{def.name}' vetoed: {ctx.VetoReason}");
             }

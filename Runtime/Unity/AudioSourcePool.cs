@@ -69,9 +69,20 @@ namespace Astra.Echo
             }
         }
 
+        internal void DiscardSource(AudioSource source)
+        {
+            if (source == null)
+                return;
+
+            ResetSource(source);
+        }
+
         private AudioSource CreateSource()
         {
-            AudioSource source = gameObject.AddComponent<AudioSource>();
+            GameObject child = new GameObject("Source " + (_sources.Count + 1));
+            child.transform.SetParent(transform, worldPositionStays: false);
+
+            AudioSource source = child.AddComponent<AudioSource>();
             source.playOnAwake = false;
             source.loop = false;
             source.outputAudioMixerGroup = _defaultMixerGroup;

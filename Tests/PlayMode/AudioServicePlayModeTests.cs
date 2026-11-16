@@ -58,7 +58,22 @@ namespace Astra.Echo.Tests
 
         private static AudioSource PoolSource(AudioBusAsset bus)
         {
-            return GameObject.Find(bus.DisplayName + " Pool").GetComponent<AudioSource>();
+            AudioSource[] sources = GameObject.Find(bus.DisplayName + " Pool").GetComponentsInChildren<AudioSource>();
+            Assert.That(sources.Length, Is.GreaterThan(0));
+            for (int i = 0; i < sources.Length; i++)
+            {
+                if (sources[i].isPlaying)
+                    return sources[i];
+            }
+
+            return sources[0];
+        }
+
+        private static AudioDefinition CreateSpatialDefinition(string name, AudioClip clip, string guid, AudioBusAsset bus)
+        {
+            AudioDefinition definition = EchoTestUtil.CreateDefinition(name, clip, guid, bus);
+            JsonUtility.FromJsonOverwrite("{\"_spatialBlend\":1}", definition);
+            return definition;
         }
 
         [UnityTest]
@@ -69,7 +84,7 @@ namespace Astra.Echo.Tests
 
             GameObject root = GameObject.Find("EchoTestRoot");
             Assert.That(root, Is.Not.Null);
-            Assert.That(root.GetComponentsInChildren<AudioSource>().Length, Is.EqualTo(3 + 2), "3 pooled sources + music + ambient tracks");
+            Assert.That(root.GetComponentsInChildren<AudioSource>().Length, Is.EqualTo(3 + 4), "3 pooled sources + music and ambient tracks (staging + active each)");
             Assert.That(_service.Buses, Is.EqualTo(new[] { _music, _ambient, _sfx }));
         }
 
@@ -79,7 +94,7 @@ namespace Astra.Echo.Tests
             CreateService(2, 2);
             yield return null;
 
-            AudioSource[] sources = GameObject.Find("Sfx Pool").GetComponents<AudioSource>();
+            AudioSource[] sources = GameObject.Find("Sfx Pool").GetComponentsInChildren<AudioSource>();
             Assert.That(sources.Length, Is.EqualTo(2));
             for (int i = 0; i < sources.Length; i++)
                 Assert.That(sources[i].isPlaying, Is.False, "play-on-awake must not leak into a new pooled source");
@@ -202,7 +217,7 @@ namespace Astra.Echo.Tests
             try
             {
                 AudioPlaybackResult result = _service.Play(AudioPlaybackRequest.ForDefinition(definition));
-                AudioSource source = ((AudioPlayer)result.Handle).GetComponent<AudioSource>();
+                AudioSource source = ((AudioPlayer)result.Handle).ActiveSource;
                 yield return null;
                 if (!_service.IsPlaying(_music)) Assert.Ignore("No audio output device available.");
                 Assert.That(source.volume, Is.EqualTo(0.8f).Within(0.0001f));
@@ -336,7 +351,7 @@ namespace Astra.Echo.Tests
 
             Assert.That(GameObject.Find("EchoTestRoot"), Is.Null);
             Assert.That(GameObject.Find("EchoSecondRoot"), Is.Not.Null);
-            Assert.That(GameObject.Find("EchoSecondRoot").GetComponentsInChildren<AudioSource>().Length, Is.EqualTo(1 + 2), "1 pooled source + music + ambient tracks");
+            Assert.That(GameObject.Find("EchoSecondRoot").GetComponentsInChildren<AudioSource>().Length, Is.EqualTo(1 + 4), "1 pooled source + music and ambient tracks (staging + active each)");
         }
 
         [UnityTest]
@@ -354,6 +369,100 @@ namespace Astra.Echo.Tests
             finally
             {
                 Object.Destroy(parent);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator SpatialPool_TwoPlaybacksKeepSeparateWorldPositions()
+        {
+            CreateService(2, 4);
+            AudioDefinition first = CreateSpatialDefinition("Near", _clip, "sp1", _sfx);
+            AudioDefinition second = CreateSpatialDefinition("Far", _other, "sp2", _sfx);
+            Vector3 near = new Vector3(1f, 0f, 2f);
+            Vector3 far = new Vector3(-3f, 1f, 0.5f);
+
+            try
+            {
+                AudioPlaybackRequest firstRequest = AudioPlaybackRequest.ForDefinition(first);
+                firstRequest.WorldPosition = near;
+                AudioPlaybackResult one = _service.Play(in firstRequest);
+                yield return null;
+
+                AudioPlaybackRequest secondRequest = AudioPlaybackRequest.ForDefinition(second);
+                secondRequest.WorldPosition = far;
+                AudioPlaybackResult two = _service.Play(in secondRequest);
+                yield return null;
+
+                Assert.That(one.Success, Is.True, one.Message);
+                Assert.That(two.Success, Is.True, two.Message);
+
+                AudioSource[] sources = GameObject.Find("Sfx Pool").GetComponentsInChildren<AudioSource>();
+                int playing = 0;
+                AudioSource firstPlaying = null;
+                AudioSource secondPlaying = null;
+                for (int i = 0; i < sources.Length; i++)
+                {
+                    if (!sources[i].isPlaying)
+                        continue;
+
+                    playing++;
+                    if (firstPlaying == null)
+                        firstPlaying = sources[i];
+                    else
+                        secondPlaying = sources[i];
+                }
+
+                if (playing == 0)
+                    Assert.Ignore("No audio output device available.");
+
+                Assert.That(playing, Is.EqualTo(2));
+                Assert.That(firstPlaying.transform.position, Is.EqualTo(near));
+                Assert.That(secondPlaying.transform.position, Is.EqualTo(far));
+            }
+            finally
+            {
+                Object.Destroy(first);
+                Object.Destroy(second);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Music_VetoedPlaybackLeavesTheActiveTrackUntouched()
+        {
+            CreateService(1, 1);
+            AudioDefinition first = EchoTestUtil.CreateDefinition("TrackA", _clip, "v1", _music);
+            AudioDefinition second = EchoTestUtil.CreateDefinition("TrackB", _other, "v2", _music);
+            CooldownModulator cooldown = EchoTestUtil.FromJson<CooldownModulator>("{\"_cooldownSeconds\":10}");
+
+            try
+            {
+                AudioPlaybackRequest start = AudioPlaybackRequest.ForDefinition(first);
+                start.Modulators = new System.Collections.Generic.List<ISoundModulator> { cooldown };
+                AudioPlaybackResult started = _service.Play(in start);
+                yield return null;
+                if (!started.Success)
+                    Assert.Ignore("No audio output device available.");
+
+                AudioPlayer player = (AudioPlayer)started.Handle;
+                AudioClip clipBefore = player.CurrentClip;
+                float volumeBefore = player.ActiveSource.volume;
+                float pitchBefore = player.ActiveSource.pitch;
+
+                AudioPlaybackRequest vetoed = AudioPlaybackRequest.ForDefinition(second);
+                vetoed.Modulators = new System.Collections.Generic.List<ISoundModulator> { cooldown };
+                AudioPlaybackResult veto = _service.Play(in vetoed);
+
+                Assert.That(veto.Success, Is.False);
+                Assert.That(veto.Message, Does.Contain("vetoed"));
+                Assert.That(player.CurrentClip, Is.SameAs(clipBefore));
+                Assert.That(player.ActiveSource.volume, Is.EqualTo(volumeBefore).Within(0.0001f));
+                Assert.That(player.ActiveSource.pitch, Is.EqualTo(pitchBefore).Within(0.0001f));
+                Assert.That(player.ActiveSource.isPlaying, Is.True);
+            }
+            finally
+            {
+                Object.Destroy(first);
+                Object.Destroy(second);
             }
         }
 

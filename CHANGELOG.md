@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.0.0]
+
+- Fixed pooled one-shots: each `AudioSource` lives on its own child transform so simultaneous 3D playbacks keep separate world positions.
+- Fixed single-track buses: vetoed playbacks no longer reconfigure the active track (`AudioPlayer` staging + promote on success).
+
 ## [2.0.0]
 
 Breaking: audio buses are assets.

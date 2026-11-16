@@ -5,52 +5,100 @@ namespace Astra.Echo
 {
     /// <summary>
     /// Track player of a <see cref="SingleTrackPlayback"/> bus.
-    /// Wraps one persistent <see cref="AudioSource"/> and exposes
-    /// minimal play / stop / volume controls. Implements
-    /// <see cref="IAudioHandle"/> so callers can keep stopping the active track.
+    /// Uses a staging <see cref="AudioSource"/> for the next playback and promotes it to the
+    /// active source only after a successful start, so vetoed requests never disturb the track.
     /// </summary>
     [UnityEngine.Scripting.APIUpdating.MovedFrom(false, "Core.Audio", "Core.Audio", "AudioPlayer")]
     public sealed class AudioPlayer : MonoBehaviour, IAudioHandle
     {
-        private AudioSource _source;
+        private AudioSource _active;
+        private AudioSource _staging;
         private AudioMixerGroup _defaultMixerGroup;
 
-        public bool IsPlaying => _source != null && _source.isPlaying;
-        public AudioClip CurrentClip => _source != null ? _source.clip : null;
+        public bool IsPlaying => _active != null && _active.isPlaying;
+        public AudioClip CurrentClip => _active != null ? _active.clip : null;
 
-        internal AudioSource Source => _source;
+        /// <summary>Staging source passed to <see cref="AudioService"/> for configuration.</summary>
+        internal AudioSource Source => _staging;
+
+        internal AudioSource ActiveSource => _active;
 
         internal void Setup(AudioMixerGroup defaultMixerGroup)
         {
-            _source = gameObject.AddComponent<AudioSource>();
-            _source.playOnAwake = false;
-            _source.loop = false;
             _defaultMixerGroup = defaultMixerGroup;
-            _source.outputAudioMixerGroup = defaultMixerGroup;
-            // Adding an AudioSource can schedule play-on-awake before the flag is cleared.
-            _source.Stop();
+            _active = CreateSource();
+            _staging = CreateSource();
         }
 
-        internal void Play(AudioClip clip, bool loop, float volume, float pitch, AudioMixerGroup mixerGroup)
+        /// <summary>Called by the channel after a successful <see cref="AudioSource.Play"/> on staging.</summary>
+        internal void Promote(AudioSource source)
         {
-            _source.clip = clip;
-            _source.loop = loop;
-            _source.volume = volume;
-            _source.pitch = pitch;
-            _source.outputAudioMixerGroup = mixerGroup != null ? mixerGroup : _defaultMixerGroup;
-            _source.Play();
+            if (source != _staging)
+                return;
+
+            if (_active != null && _active.isPlaying)
+                _active.Stop();
+
+            AudioSource previousActive = _active;
+            _active = _staging;
+            _staging = previousActive;
+            ResetSource(_staging);
+        }
+
+        internal void DiscardStaging()
+        {
+            if (_staging == null)
+                return;
+
+            ResetSource(_staging);
         }
 
         public void Stop()
         {
-            if (_source == null) return;
-            if (_source.isPlaying) _source.Stop();
-            _source.clip = null;
+            if (_active != null)
+            {
+                if (_active.isPlaying)
+                    _active.Stop();
+                _active.clip = null;
+            }
+
+            if (_staging != null)
+            {
+                if (_staging.isPlaying)
+                    _staging.Stop();
+                _staging.clip = null;
+            }
         }
 
         internal void SetVolume(float volume)
         {
-            if (_source != null) _source.volume = volume;
+            if (_active != null)
+                _active.volume = volume;
+        }
+
+        private AudioSource CreateSource()
+        {
+            AudioSource source = gameObject.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.loop = false;
+            source.outputAudioMixerGroup = _defaultMixerGroup;
+            source.Stop();
+            return source;
+        }
+
+        private void ResetSource(AudioSource source)
+        {
+            if (source == null)
+                return;
+
+            if (source.isPlaying)
+                source.Stop();
+
+            source.clip = null;
+            source.loop = false;
+            source.volume = 1f;
+            source.pitch = 1f;
+            source.spatialBlend = 0f;
         }
     }
 }

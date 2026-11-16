@@ -28,8 +28,16 @@ namespace Astra.Echo
         /// </summary>
         public abstract AudioSource Acquire(out string failure);
 
-        /// <summary>Handle returned to the caller once <paramref name="source"/> has started; null when the playback is not addressable.</summary>
+        /// <summary>
+        /// Handle returned after a successful start. Called once per successful playback,
+        /// never when the request was vetoed or could not play.
+        /// </summary>
         public abstract IAudioHandle HandleFor(AudioSource source);
+
+        /// <summary>Reverts a source returned by <see cref="Acquire"/> when playback is aborted before <see cref="HandleFor"/>.</summary>
+        public virtual void DiscardAcquire(AudioSource source)
+        {
+        }
 
         /// <summary>Called with Master × bus volume whenever either changes.</summary>
         public abstract void OnVolumeChanged(float effectiveVolume);

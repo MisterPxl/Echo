@@ -67,6 +67,11 @@ namespace Astra.Echo
 
             public override IAudioHandle HandleFor(AudioSource source) => null;
 
+            public override void DiscardAcquire(AudioSource source)
+            {
+                _pool?.DiscardSource(source);
+            }
+
             public override void OnVolumeChanged(float effectiveVolume)
             {
             }

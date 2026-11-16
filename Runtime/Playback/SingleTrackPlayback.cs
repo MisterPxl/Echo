@@ -43,7 +43,17 @@ namespace Astra.Echo
                 return _player.Source;
             }
 
-            public override IAudioHandle HandleFor(AudioSource source) => _player;
+            public override IAudioHandle HandleFor(AudioSource source)
+            {
+                _player.Promote(source);
+                return _player;
+            }
+
+            public override void DiscardAcquire(AudioSource source)
+            {
+                if (source == _player.Source)
+                    _player.DiscardStaging();
+            }
 
             public override void OnVolumeChanged(float effectiveVolume)
             {

@@ -50,7 +50,7 @@ namespace Astra.Echo.Tests
                 GameObject pool = GameObject.Find("Voice Pool");
                 Assert.That(pool, Is.Not.Null);
                 Assert.That(pool.transform.parent, Is.SameAs(GameObject.Find("EchoBusRoot").transform));
-                AudioSource source = pool.GetComponent<AudioSource>();
+                AudioSource source = pool.GetComponentInChildren<AudioSource>();
                 Assert.That(source.clip, Is.SameAs(_clip));
                 Assert.That(source.volume, Is.EqualTo(0.3f).Within(0.0001f));
                 Assert.That(_service.Buses, Is.EqualTo(new[] { _sfx, _voice }));
