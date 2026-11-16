@@ -517,7 +517,7 @@ namespace Astra.Echo.Tests
             }
             finally
             {
-                Object.Destroy(def, canon, bundleCopy);
+                EchoTestUtil.Destroy(def, canon, bundleCopy);
             }
         }
 

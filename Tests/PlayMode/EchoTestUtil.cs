@@ -43,11 +43,11 @@ namespace Astra.Echo.Tests
             return definition;
         }
 
-        public static AudioBusAsset CreateBus(string name, AudioBusPlayback playback, float defaultVolume = 1f)
+        public static AudioBusAsset CreateBus(string name, AudioBusPlayback playback, float defaultVolume = 1f, string volumeKey = null)
         {
             AudioBusAsset bus = ScriptableObject.CreateInstance<AudioBusAsset>();
             bus.name = name + "Bus";
-            bus.Configure(name, playback, defaultVolume);
+            bus.Configure(name, playback, defaultVolume, volumeKey: volumeKey);
             return bus;
         }
 
