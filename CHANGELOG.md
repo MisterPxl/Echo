@@ -13,6 +13,7 @@ Fixes (also present on `astra-5-banks` before 3.0.0):
 - Fixed single-track buses: vetoed playbacks no longer reconfigure the active track (`AudioPlayer` staging + promote on success).
 
 Added `IAudioDatabaseRegistry` on `AudioService`.
+- Editor: definitions sync into the closest parent `AudioDatabase` folder (`AudioImportSettings.DefaultDatabase` for orphans). `AudioDefinitionFactory` no longer takes a database argument.
 
 ## [2.0.0]
 

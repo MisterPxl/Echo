@@ -26,8 +26,9 @@ namespace Astra.Echo.Tests
         [Test]
         public void AddDatabase_RegistersAndResolvesInOrder()
         {
-            AudioDefinition first = EchoTestUtil.CreateDefinition("A", _clip, "a1");
-            AudioDefinition second = EchoTestUtil.CreateDefinition("B", _clip, "b1");
+            AudioBusAsset bus = EchoTestUtil.CreateBus("Sfx", new OneShotPoolPlayback());
+            AudioDefinition first = EchoTestUtil.CreateDefinition("A", _clip, "a1", bus);
+            AudioDefinition second = EchoTestUtil.CreateDefinition("B", _clip, "b1", bus);
             AudioDatabase primary = EchoTestUtil.CreateDatabase(first);
             AudioDatabase overlay = EchoTestUtil.CreateDatabase(second);
 
@@ -43,7 +44,7 @@ namespace Astra.Echo.Tests
             }
             finally
             {
-                EchoTestUtil.Destroy(primary, overlay, first, second);
+                EchoTestUtil.Destroy(primary, overlay, first, second, bus);
             }
         }
 

@@ -18,7 +18,7 @@ namespace Astra.Echo.Editor
         /// and registers it in the active database. Idempotent — safe to call multiple times
         /// on the same clip.
         /// </summary>
-        public static AudioDefinition GetOrCreateForClip(AudioClip clip, AudioImportSettings settings, AudioDatabase database)
+        public static AudioDefinition GetOrCreateForClip(AudioClip clip, AudioImportSettings settings)
         {
             if (clip == null) return null;
 
@@ -52,12 +52,6 @@ namespace Astra.Echo.Editor
             string guid = AssetDatabase.AssetPathToGUID(assetPath);
             def.EditorSetId(new AudioId(guid));
             EditorUtility.SetDirty(def);
-
-            if (database != null)
-            {
-                database.EditorAddDefinition(def);
-                EditorUtility.SetDirty(database);
-            }
 
             Debug.Log($"[Echo] Auto-created AudioDefinition for clip '{clip.name}' → {assetPath}");
             return def;

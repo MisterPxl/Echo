@@ -10,16 +10,10 @@ namespace Astra.Echo.Editor
     ///   <item>On <see cref="OnPreprocessAudio"/>: applies the SFX/Music import profile
     ///         declared in <see cref="AudioImportSettings"/>.</item>
     ///   <item>On <see cref="OnPostprocessAllAssets"/>: creates missing AudioDefinitions
-    ///         for newly-imported clips that fall in an auto-create scope, then refreshes
-    ///         the database and triggers <see cref="AudioIdCodegen"/>.</item>
+    ///         for newly-imported clips that fall in an auto-create scope, resyncs every
+    ///         <see cref="AudioDatabase"/> with definitions in its folder tree, and triggers
+    ///         <see cref="AudioIdCodegen"/>.</item>
     /// </list>
-    ///
-    /// <para>The database itself is only created lazily, the first time at least one
-    /// eligible clip is imported. Editing or moving definitions never causes a database
-    /// to spring into existence.</para>
-    ///
-    /// <para>All steps are batched into a single end-of-import pass. The codegen and
-    /// AssetDatabase write only happen once even if many clips were imported together.</para>
     /// </summary>
     [UnityEngine.Scripting.APIUpdating.MovedFrom(false, "Core.Audio.Editor", "Core.Audio.Editor", "AudioPostprocessor")]
     public sealed class AudioPostprocessor : AssetPostprocessor
@@ -32,8 +26,6 @@ namespace Astra.Echo.Editor
             if (settings == null || !settings.ApplyImportProfiles) return;
 
             AudioImporter importer = (AudioImporter)assetImporter;
-            // The clip duration is unknown before import: the profile follows file name hints,
-            // the bus is chosen by duration once the definition is created.
             ApplyProfile(importer, LooksLikeMusic(assetPath) ? settings.MusicProfile : settings.SfxProfile);
         }
 
@@ -50,35 +42,14 @@ namespace Astra.Echo.Editor
                                     || ContainsAssetOfType<AudioDefinition>(movedAssets)
                                     || ContainsAssetOfType<AudioDefinition>(deletedAssets);
 
-            // Nothing audio-related happened in this batch → bail out.
-            // No DB lookup, no DB creation, no codegen.
             if (eligibleClipPaths.Count == 0 && !definitionsTouched) return;
 
-            // The database is created on demand only when we actually have an eligible
-            // clip to register. Editing or moving an existing definition never triggers
-            // a database creation — it only refreshes the existing one if any.
-            AudioDatabase database = AudioDatabaseRegistry.FindPrimaryDatabase();
             bool autoCreateRequested = eligibleClipPaths.Count > 0
                                     && settings != null
                                     && settings.AutoCreateDefinitions;
 
-            if (database == null)
-            {
-                if (autoCreateRequested)
-                {
-                    database = AudioDatabaseRegistry.CreatePrimaryDatabase();
-                }
-                else
-                {
-                    // No database, no clips to register: nothing to do beyond definition diffs
-                    // (which would have nowhere to land). Skip silently.
-                    if (definitionsTouched)
-                        AudioIdCodegen.Generate(AudioDatabaseRegistry.FindAllDefinitions());
-                    return;
-                }
-            }
-
-            bool changed = false;
+            if (autoCreateRequested && AudioDatabaseRegistry.FindAllDatabases().Count == 0)
+                AudioDatabaseRegistry.CreatePrimaryDatabase();
 
             if (autoCreateRequested)
             {
@@ -87,34 +58,14 @@ namespace Astra.Echo.Editor
                     AudioClip clip = AssetDatabase.LoadAssetAtPath<AudioClip>(eligibleClipPaths[i]);
                     if (clip == null) continue;
 
-                    AudioDefinition def = AudioDefinitionFactory.GetOrCreateForClip(clip, settings, database);
-                    if (def != null) changed = true;
+                    AudioDefinitionFactory.GetOrCreateForClip(clip, settings);
                 }
             }
 
-            // Re-sync the database with all definitions in the project so manual
-            // creates / moves / deletes are reflected without a separate command.
-            List<AudioDefinition> allDefs = AudioDatabaseRegistry.FindAllDefinitions();
-            database.EditorSetDefinitions(allDefs);
+            if (definitionsTouched || autoCreateRequested)
+                AudioDatabaseRegistry.SyncAllDatabases(settings);
 
-            // Make sure each definition carries its current asset GUID as its AudioId.
-            for (int i = 0; i < allDefs.Count; i++)
-            {
-                AudioDefinition def = allDefs[i];
-                string assetPath = AssetDatabase.GetAssetPath(def);
-                string guid = AssetDatabase.AssetPathToGUID(assetPath);
-                if (!string.IsNullOrEmpty(guid) && def.Id.Guid != guid)
-                {
-                    def.EditorSetId(new AudioId(guid));
-                    EditorUtility.SetDirty(def);
-                    changed = true;
-                }
-            }
-
-            EditorUtility.SetDirty(database);
-            if (changed) AssetDatabase.SaveAssets();
-
-            AudioIdCodegen.Generate(allDefs);
+            AudioIdCodegen.Generate(AudioDatabaseRegistry.FindAllDefinitions());
         }
 
         private static List<string> CollectEligibleClipPaths(string[] importedAssets, AudioImportSettings settings)
@@ -125,8 +76,6 @@ namespace Astra.Echo.Editor
                 string path = importedAssets[i];
                 if (!IsAudioClipPath(path)) continue;
 
-                // Honor the auto-create scope whitelist. Out-of-scope clips are ignored
-                // silently — by design, see AudioImportSettings.AutoCreateScopes.
                 if (settings != null && !settings.IsPathInAutoCreateScope(path)) continue;
 
                 result.Add(path);
@@ -164,8 +113,6 @@ namespace Astra.Echo.Editor
             importer.loadInBackground = profile.LoadInBackground;
             importer.ambisonic = profile.Ambisonic;
 
-            // PreloadAudioData moved from AudioImporter to AudioImporterSampleSettings
-            // in Unity 2022 — it is now a per-platform sample setting.
             AudioImporterSampleSettings sample = importer.defaultSampleSettings;
             sample.loadType = profile.LoadType;
             sample.compressionFormat = MapCompression(profile.CompressionFormat);

@@ -32,6 +32,9 @@ namespace Astra.Echo
         [SerializeField] private AudioImportProfile _music = AudioImportProfile.MusicDefault();
 
         [Header("Pipeline")]
+        [Tooltip("Database that receives definitions with no parent database folder. When null, a sole project database is used, otherwise the shortest database path.")]
+        [SerializeField] private AudioDatabase _defaultDatabase;
+
         [Tooltip("Auto-create an AudioDefinition next to each imported clip if missing.")]
         [SerializeField] private bool _autoCreateDefinitions = true;
 
@@ -57,6 +60,7 @@ namespace Astra.Echo
         public AudioBusAsset SfxBus => _sfxBus;
         public AudioImportProfile SfxProfile => _sfx;
         public AudioImportProfile MusicProfile => _music;
+        public AudioDatabase DefaultDatabase => _defaultDatabase;
         public bool AutoCreateDefinitions => _autoCreateDefinitions;
         public string DefinitionOutputFolder => _definitionOutputFolder;
         public string GeneratedOutputFolder => _generatedOutputFolder;
