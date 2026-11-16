@@ -294,7 +294,12 @@ namespace Astra.Echo
         private void DestroyRoot()
         {
             if (_root != null)
-                UnityEngine.Object.Destroy(_root.gameObject);
+            {
+                if (Application.isPlaying)
+                    UnityEngine.Object.Destroy(_root.gameObject);
+                else
+                    UnityEngine.Object.DestroyImmediate(_root.gameObject);
+            }
 
             _root = null;
             _sourceDefinitions.Clear();
