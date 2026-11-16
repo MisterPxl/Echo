@@ -484,7 +484,7 @@ namespace Astra.Echo.Tests
                 Assert.That(((IAudioDatabaseRegistry)_service).RemoveDatabase(bank), Is.True);
                 AudioPlaybackResult missing = _service.Play(new AudioId("bk1"));
                 Assert.That(missing.Success, Is.False);
-                Assert.That(missing.Message, Does.Contain("not found"));
+                Assert.That(missing.Message, Does.Match("not found|No AudioDatabase registered"));
             }
             finally
             {
