@@ -193,7 +193,7 @@ namespace Astra.Echo.Tests
             AudioServiceSettings settings = new AudioServiceSettings();
 
             Assert.That(settings.RootName, Is.EqualTo("AudioRoot"));
-            Assert.That(settings.Database, Is.Null);
+            Assert.That(settings.Databases, Is.Empty);
             Assert.That(settings.MasterVolume, Is.EqualTo(1f));
             Assert.That(settings.Buses, Is.Empty);
             Assert.That(settings.RawClipBus, Is.Null);

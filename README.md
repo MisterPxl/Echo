@@ -5,7 +5,8 @@
 ## Concepts
 
 - `AudioDefinition` (ScriptableObject): clip, bus, base volume and pitch, spatial settings, `[SerializeReference]` modulators and options.
-- `AudioBusAsset` (ScriptableObject): a volume bus under Master — display name, volume key (for a settings layer that persists volumes), default volume, mixer group and playback behaviour. A source plays at definition volume × bus volume × Master.
+- `AudioBusAsset` (ScriptableObject): a volume bus under Master — display name, volume key (stable bus identity and persisted volume), default volume, mixer group and playback behaviour. Two bus assets with the same volume key share the same channel state.
+- `IAudioDatabaseRegistry`: optional capability on `AudioService` to add and remove `IAudioDatabase` instances at runtime (loaded banks, DLC, etc.). Resolution walks databases in registration order.
 - `AudioDatabase`: lookup by `AudioId`, clip or label.
 - `AudioId`: stable id (the definition asset GUID). The editor generates `public static partial class AudioIds` in `AudioImportSettings.GeneratedOutputFolder`.
 - `IAudioService` / `AudioService`: `MasterVolume`, `GetVolume` / `SetVolume` / `IsPlaying` / `Stop` per bus, `Buses`, fluent `CreateRequest(id)`.
@@ -33,7 +34,8 @@ To add a bus (Voice, UI…), create `Astra/Echo/Audio Bus`, pick its playback an
 ```csharp
 using Astra.Echo;
 
-AudioServiceSettings settings = new AudioServiceSettings { Database = myDatabase, RawClipBus = mySfxBus };
+AudioServiceSettings settings = new AudioServiceSettings { RawClipBus = mySfxBus };
+settings.Databases.Add(myDatabase);
 settings.Buses.Add(myMusicBus);
 settings.Buses.Add(mySfxBus);
 

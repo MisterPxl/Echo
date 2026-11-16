@@ -467,13 +467,70 @@ namespace Astra.Echo.Tests
         }
 
         [UnityTest]
+        public IEnumerator Registry_AddedDatabaseResolves_AndRemoveStopsPlayback()
+        {
+            CreateService(2, 4);
+            AudioBusAsset sfxLocal = _sfx;
+            AudioDefinition bankSound = EchoTestUtil.CreateDefinition("Bank", _other, "bk1", sfxLocal);
+            AudioDatabase bank = EchoTestUtil.CreateDatabase(bankSound);
+
+            try
+            {
+                Assert.That(((IAudioDatabaseRegistry)_service).AddDatabase(bank), Is.True);
+                AudioPlaybackResult play = _service.Play(new AudioId("bk1"));
+                yield return null;
+                Assert.That(play.Success, Is.True, play.Message);
+
+                Assert.That(((IAudioDatabaseRegistry)_service).RemoveDatabase(bank), Is.True);
+                AudioPlaybackResult missing = _service.Play(new AudioId("bk1"));
+                Assert.That(missing.Success, Is.False);
+                Assert.That(missing.Message, Does.Contain("not found"));
+            }
+            finally
+            {
+                Object.Destroy(bank);
+                Object.Destroy(bankSound);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator SharedVolumeKey_BuildsOnePoolForDuplicateBusAssets()
+        {
+            AudioBusAsset canon = EchoTestUtil.CreateBus("CanonSfx", new OneShotPoolPlayback(2, 4), 1f, "echo.volume.sfx.shared");
+            AudioBusAsset bundleCopy = EchoTestUtil.CreateBus("BundleSfx", new OneShotPoolPlayback(2, 4), 1f, "echo.volume.sfx.shared");
+            _sfx = canon;
+            CreateService(2, 4);
+            AudioDefinition def = EchoTestUtil.CreateDefinition("Dup", _clip, "dup1", bundleCopy);
+
+            try
+            {
+                _service.Play(AudioPlaybackRequest.ForDefinition(def));
+                yield return null;
+
+                GameObject[] pools = new GameObject[2];
+                pools[0] = GameObject.Find("CanonSfx Pool");
+                pools[1] = GameObject.Find("BundleSfx Pool");
+                int found = 0;
+                if (pools[0] != null) found++;
+                if (pools[1] != null) found++;
+                Assert.That(found, Is.EqualTo(1));
+            }
+            finally
+            {
+                Object.Destroy(def, canon, bundleCopy);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator MinimalProjectSmoke_NoFrameworkRequired()
         {
             _sfx = EchoTestUtil.CreateBus("Sfx", new OneShotPoolPlayback(2, 4));
             AudioDefinition definition = EchoTestUtil.CreateDefinition("Smoke", _clip, "5m0k3", _sfx);
             AudioDatabase database = EchoTestUtil.CreateDatabase(definition);
             _service = new AudioService();
-            _service.Initialize(new AudioServiceSettings { RootName = "EchoSmokeRoot", Database = database });
+            AudioServiceSettings smokeSettings = new AudioServiceSettings { RootName = "EchoSmokeRoot" };
+            smokeSettings.Databases.Add(database);
+            _service.Initialize(smokeSettings);
 
             try
             {

@@ -2,8 +2,17 @@
 
 ## [3.0.0]
 
+Breaking:
+
+- `AudioServiceSettings.Database` replaced by `Databases` (`List<IAudioDatabase>`). `Initialize` registers that list; use `IAudioDatabaseRegistry.AddDatabase` / `RemoveDatabase` for runtime banks.
+- Bus channel state is keyed by `AudioBusAsset.VolumeKey`. Duplicate keys share one pool or track (intentional for Addressables duplicate references).
+
+Fixes (also present on `astra-5-banks` before 3.0.0):
+
 - Fixed pooled one-shots: each `AudioSource` lives on its own child transform so simultaneous 3D playbacks keep separate world positions.
 - Fixed single-track buses: vetoed playbacks no longer reconfigure the active track (`AudioPlayer` staging + promote on success).
+
+Added `IAudioDatabaseRegistry` on `AudioService`.
 
 ## [2.0.0]
 

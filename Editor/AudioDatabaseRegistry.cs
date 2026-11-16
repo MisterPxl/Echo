@@ -12,7 +12,7 @@ namespace Astra.Echo.Editor
     /// <para>Strategy: pick the first asset of the requested type discovered through
     /// <c>FindAssets</c>. Projects with multiple databases must designate one as the
     /// primary by leaving only one in scope (or by referencing it explicitly via
-    /// <see cref="AudioServiceSettings.Database"/>).</para>
+    /// <see cref="AudioServiceSettings.Databases"/>).</para>
     /// </summary>
     [UnityEngine.Scripting.APIUpdating.MovedFrom(false, "Core.Audio.Editor", "Core.Audio.Editor", "AudioDatabaseRegistry")]
     public static class AudioDatabaseRegistry

@@ -18,7 +18,8 @@ namespace Astra.Echo
         [Tooltip("Name shown by settings screens and logs. Defaults to the asset name when empty.")]
         [SerializeField] private string _displayName;
 
-        [Tooltip("Key under which a settings layer persists this bus volume. Defaults to the asset name when empty.")]
+        [Tooltip("Stable bus identity used for volume state and channel sharing. Two bus assets with the same " +
+                 "key share a pool or track even when loaded from different bundles. Defaults to the asset name when empty.")]
         [SerializeField] private string _volumeKey;
 
         [Range(0f, 1f)] [SerializeField] private float _defaultVolume = 1f;
